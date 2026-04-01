@@ -1,0 +1,16 @@
+{
+  "id": "bubble",
+  "name": "Bubble Template",
+  "description": "Simple and colorful report template with bubble decorations",
+  "params": [
+    { "key": "title",       "type": "text",  "label": "Title",        "required": true,  "default": "" },
+    { "key": "subtitle",    "type": "text",  "label": "Subtitle",     "required": false, "default": "" },
+    { "key": "author",      "type": "text",  "label": "Author",       "required": false, "default": "" },
+    { "key": "affiliation", "type": "text",  "label": "Affiliation",  "required": false, "default": "" },
+    { "key": "year",        "type": "text",  "label": "Year",         "required": false, "default": "" },
+    { "key": "class",       "type": "text",  "label": "Class",        "required": false, "default": "" },
+    { "key": "main-color",  "type": "color", "label": "Accent Color", "required": false, "default": "E94845" },
+    { "key": "logo",        "type": "file",  "label": "Logo Image",   "required": false }
+  ],
+  "wrapper_template": "wrapper.typ.jinja"
+}

@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Typst Document Converter</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f5f6fa; color: #2d3436; min-height: 100vh; }
+  .header { background: linear-gradient(135deg, #E94845 0%, #c0392b 100%); color: white; padding: 1.5rem 2rem; }
+  .header h1 { font-size: 1.8rem; font-weight: 700; }
+  .header p { opacity: 0.85; margin-top: 0.25rem; }
+  .container { max-width: 960px; margin: 2rem auto; padding: 0 1.5rem; }
+  .card { background: white; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); padding: 2rem; margin-bottom: 1.5rem; }
+  .step-label { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #E94845; margin-bottom: 0.5rem; }
+  .section-title { font-size: 1.25rem; font-weight: 600; margin-bottom: 1.25rem; }
+
+  /* Template cards */
+  .template-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; }
+  .template-card { border: 2px solid #e0e0e0; border-radius: 8px; padding: 1.25rem; cursor: pointer; transition: all 0.2s; }
+  .template-card:hover { border-color: #E94845; box-shadow: 0 2px 8px rgba(233,72,69,0.15); }
+  .template-card.selected { border-color: #E94845; background: #fff5f5; }
+  .template-card h3 { font-size: 1rem; margin-bottom: 0.4rem; }
+  .template-card p { font-size: 0.85rem; color: #636e72; }
+  .template-badge { display: inline-block; background: #E94845; color: white; font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 4px; margin-bottom: 0.5rem; }
+
+  /* Upload zone */
+  .upload-zone { border: 2px dashed #b2bec3; border-radius: 8px; padding: 2.5rem; text-align: center; cursor: pointer; transition: all 0.2s; }
+  .upload-zone:hover, .upload-zone.drag-over { border-color: #E94845; background: #fff5f5; }
+  .upload-zone .icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
+  .upload-zone p { color: #636e72; }
+  .upload-zone .filename { color: #E94845; font-weight: 600; margin-top: 0.5rem; }
+  #md-input { display: none; }
+
+  /* Form */
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 600px) { .form-grid { grid-template-columns: 1fr; } }
+  .form-group { display: flex; flex-direction: column; gap: 0.4rem; }
+  .form-group label { font-size: 0.875rem; font-weight: 500; color: #2d3436; }
+  .form-group input[type=text], .form-group input[type=color] {
+    border: 1.5px solid #dfe6e9; border-radius: 6px; padding: 0.6rem 0.75rem; font-size: 0.95rem; transition: border 0.2s;
+  }
+  .form-group input[type=text]:focus { outline: none; border-color: #E94845; }
+  .form-group input[type=color] { padding: 0.3rem; height: 2.5rem; cursor: pointer; }
+  .form-group input[type=file] { font-size: 0.875rem; }
+  .form-group .hint { font-size: 0.75rem; color: #b2bec3; }
+  .required-star { color: #E94845; }
+  .full-width { grid-column: 1 / -1; }
+
+  /* Buttons */
+  .btn { padding: 0.75rem 2rem; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+  .btn-primary { background: #E94845; color: white; }
+  .btn-primary:hover { background: #c0392b; }
+  .btn-primary:disabled { background: #b2bec3; cursor: not-allowed; }
+  .btn-secondary { background: #f5f6fa; color: #2d3436; border: 1.5px solid #dfe6e9; }
+  .btn-secondary:hover { background: #e0e0e0; }
+  .btn-download { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1.25rem; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 0.9rem; transition: all 0.2s; }
+  .btn-pdf { background: #E94845; color: white; }
+  .btn-pdf:hover { background: #c0392b; }
+  .btn-docx { background: #2980b9; color: white; }
+  .btn-docx:hover { background: #1e6fa3; }
+  .btn-odt { background: #27ae60; color: white; }
+  .btn-odt:hover { background: #1e8449; }
+
+  /* Spinner */
+  .spinner-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100; align-items: center; justify-content: center; flex-direction: column; gap: 1.5rem; }
+  .spinner-overlay.active { display: flex; }
+  .spinner { width: 56px; height: 56px; border: 5px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner-text { color: white; font-size: 1.1rem; font-weight: 500; }
+
+  /* Results */
+  .result-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+  .pdf-preview { width: 100%; height: 600px; border: 1px solid #dfe6e9; border-radius: 8px; }
+
+  /* Error */
+  .error-box { background: #fff5f5; border: 1.5px solid #e74c3c; border-radius: 8px; padding: 1rem 1.25rem; color: #c0392b; font-size: 0.9rem; white-space: pre-wrap; }
+
+  /* Steps navigation */
+  .steps-nav { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
+  .step-dot { width: 8px; height: 8px; border-radius: 50%; background: #dfe6e9; transition: all 0.2s; }
+  .step-dot.active { background: #E94845; transform: scale(1.3); }
+  .step-dot.done { background: #27ae60; }
+
+  .hidden { display: none !important; }
+  .actions-row { display: flex; gap: 1rem; align-items: center; margin-top: 1.5rem; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>&#x1F4C4; Typst Document Converter</h1>
+  <p>Convert Markdown to beautifully styled PDF, DOCX, and ODT documents</p>
+</div>
+
+<div class="container">
+  <!-- Steps indicator -->
+  <div class="steps-nav" id="steps-nav">
+    <div class="step-dot active" id="dot-0"></div>
+    <div class="step-dot" id="dot-1"></div>
+    <div class="step-dot" id="dot-2"></div>
+    <div class="step-dot" id="dot-3"></div>
+  </div>
+
+  <!-- Step 0: Template selection -->
+  <div class="card" id="step-template">
+    <div class="step-label">Step 1</div>
+    <div class="section-title">Choose a Template</div>
+    <div class="template-grid" id="template-grid">
+      <div style="color:#b2bec3">Loading templates&hellip;</div>
+    </div>
+    <div class="actions-row">
+      <button class="btn btn-primary" id="btn-next-template" disabled onclick="goToStep(1)">Next &rarr;</button>
+    </div>
+  </div>
+
+  <!-- Step 1: Upload MD file -->
+  <div class="card hidden" id="step-upload">
+    <div class="step-label">Step 2</div>
+    <div class="section-title">Upload your Markdown File</div>
+    <div class="upload-zone" id="upload-zone" onclick="document.getElementById('md-input').click()"
+         ondragover="event.preventDefault();this.classList.add('drag-over')"
+         ondragleave="this.classList.remove('drag-over')"
+         ondrop="handleDrop(event)">
+      <div class="icon">&#x1F4C2;</div>
+      <p>Drag &amp; drop your <strong>.md</strong> file here, or click to browse</p>
+      <div class="filename hidden" id="upload-filename"></div>
+    </div>
+    <input type="file" id="md-input" accept=".md,.markdown" onchange="handleFileSelect(event)">
+    <div class="actions-row">
+      <button class="btn btn-secondary" onclick="goToStep(0)">&larr; Back</button>
+      <button class="btn btn-primary" id="btn-next-upload" disabled onclick="goToStep(2)">Next &rarr;</button>
+    </div>
+  </div>
+
+  <!-- Step 2: Parameters form -->
+  <div class="card hidden" id="step-params">
+    <div class="step-label">Step 3</div>
+    <div class="section-title">Document Settings</div>
+    <p style="font-size:0.85rem;color:#636e72;margin-bottom:1.25rem">Fields are pre-filled from your Markdown frontmatter. Override as needed.</p>
+    <div class="form-grid" id="params-form"></div>
+    <div class="actions-row">
+      <button class="btn btn-secondary" onclick="goToStep(1)">&larr; Back</button>
+      <button class="btn btn-primary" id="btn-convert" onclick="doConvert()">&#x1F680; Convert</button>
+    </div>
+  </div>
+
+  <!-- Step 3: Results -->
+  <div class="card hidden" id="step-result">
+    <div class="step-label">Step 4</div>
+    <div class="section-title">Your Documents Are Ready!</div>
+    <div id="error-container" class="hidden"></div>
+    <div id="result-content" class="hidden">
+      <div class="result-actions" id="download-buttons"></div>
+      <iframe class="pdf-preview" id="pdf-preview" title="PDF Preview"></iframe>
+    </div>
+    <div class="actions-row">
+      <button class="btn btn-secondary" onclick="reset()">&#x1F504; Convert Another File</button>
+    </div>
+  </div>
+</div>
+
+<!-- Spinner -->
+<div class="spinner-overlay" id="spinner">
+  <div class="spinner"></div>
+  <div class="spinner-text">Converting your document&hellip;</div>
+</div>
+
+<script>
+// ---- State ----
+let selectedTemplateId = null;
+let selectedTemplateMeta = null;
+let mdFile = null;
+let mdContent = '';
+let frontmatter = {};
+
+// ---- Init ----
+async function init() {
+  try {
+    const resp = await fetch('/api/templates');
+    const templates = await resp.json();
+    renderTemplateGrid(templates);
+  } catch(e) {
+    document.getElementById('template-grid').innerHTML = '<div class="error-box">Failed to load templates.</div>';
+  }
+}
+
+function renderTemplateGrid(templates) {
+  const grid = document.getElementById('template-grid');
+  grid.innerHTML = '';
+  templates.forEach(t => {
+    const card = document.createElement('div');
+    card.className = 'template-card';
+    card.dataset.id = t.id;
+    card.innerHTML =
+      '<div class="template-badge">' + escapeHtml(t.id) + '</div>' +
+      '<h3>' + escapeHtml(t.name) + '</h3>' +
+      '<p>' + escapeHtml(t.description) + '</p>';
+    card.onclick = () => selectTemplate(t, card);
+    grid.appendChild(card);
+  });
+}
+
+function selectTemplate(meta, cardEl) {
+  document.querySelectorAll('.template-card').forEach(c => c.classList.remove('selected'));
+  cardEl.classList.add('selected');
+  selectedTemplateId = meta.id;
+  selectedTemplateMeta = meta;
+  document.getElementById('btn-next-template').disabled = false;
+}
+
+// ---- File upload ----
+function handleFileSelect(event) {
+  const file = event.target.files[0];
+  if (file) setMdFile(file);
+}
+function handleDrop(event) {
+  event.preventDefault();
+  document.getElementById('upload-zone').classList.remove('drag-over');
+  const file = event.dataTransfer.files[0];
+  if (file && (file.name.endsWith('.md') || file.name.endsWith('.markdown'))) {
+    setMdFile(file);
+  }
+}
+function setMdFile(file) {
+  mdFile = file;
+  const el = document.getElementById('upload-filename');
+  el.textContent = '\u2705 ' + file.name;
+  el.classList.remove('hidden');
+  document.getElementById('btn-next-upload').disabled = false;
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    mdContent = e.target.result;
+    frontmatter = parseFrontmatter(mdContent);
+  };
+  reader.readAsText(file);
+}
+
+// ---- YAML frontmatter parser (simple) ----
+function parseFrontmatter(content) {
+  const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
+  if (!match) return {};
+  const result = {};
+  match[1].split('\n').forEach(line => {
+    const m = line.match(/^([^:]+):\s*(.*)$/);
+    if (m) result[m[1].trim()] = m[2].trim().replace(/^['"]|['"]$/g, '');
+  });
+  return result;
+}
+
+// ---- Params form ----
+function renderParamsForm() {
+  const container = document.getElementById('params-form');
+  container.innerHTML = '';
+
+  if (!selectedTemplateMeta || !selectedTemplateMeta.params) return;
+
+  selectedTemplateMeta.params.forEach(p => {
+    const group = document.createElement('div');
+    group.className = 'form-group' + (p.key === 'logo' ? ' full-width' : '');
+
+    const label = document.createElement('label');
+    label.htmlFor = 'param-' + p.key;
+    label.innerHTML = escapeHtml(p.label) + (p.required ? ' <span class="required-star">*</span>' : '');
+    group.appendChild(label);
+
+    const fmValue = frontmatter[p.key] || '';
+    const defaultValue = p.default || '';
+
+    if (p.type === 'text') {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.id = 'param-' + p.key;
+      input.name = p.key;
+      input.value = fmValue || defaultValue;
+      input.placeholder = p.label;
+      group.appendChild(input);
+    } else if (p.type === 'color') {
+      const colorRow = document.createElement('div');
+      colorRow.style.display = 'flex';
+      colorRow.style.gap = '0.75rem';
+      colorRow.style.alignItems = 'center';
+
+      const input = document.createElement('input');
+      input.type = 'color';
+      input.id = 'param-' + p.key;
+      input.name = p.key;
+      const hexVal = fmValue || defaultValue || 'E94845';
+      input.value = '#' + hexVal.replace('#', '');
+
+      const hexLabel = document.createElement('span');
+      hexLabel.style.fontSize = '0.85rem';
+      hexLabel.style.color = '#636e72';
+      hexLabel.textContent = '#' + hexVal.replace('#', '').toUpperCase();
+      input.addEventListener('input', () => {
+        hexLabel.textContent = input.value.toUpperCase();
+      });
+
+      colorRow.appendChild(input);
+      colorRow.appendChild(hexLabel);
+      group.appendChild(colorRow);
+    } else if (p.type === 'file') {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.id = 'param-' + p.key;
+      input.name = p.key;
+      input.accept = 'image/*';
+      group.appendChild(input);
+      const hint = document.createElement('div');
+      hint.className = 'hint';
+      hint.textContent = 'Optional. Accepted: PNG, JPG, SVG';
+      group.appendChild(hint);
+    }
+
+    container.appendChild(group);
+  });
+}
+
+// ---- Convert ----
+async function doConvert() {
+  const formData = new FormData();
+  formData.append('md_file', mdFile);
+  formData.append('template_id', selectedTemplateId);
+
+  // Collect params
+  const params = {};
+  selectedTemplateMeta.params.forEach(p => {
+    if (p.type === 'file') return;
+    const el = document.getElementById('param-' + p.key);
+    if (el) {
+      const val = p.type === 'color' ? el.value.replace('#', '') : el.value.trim();
+      if (val) params[p.key] = val;
+    }
+  });
+  formData.append('params', JSON.stringify(params));
+
+  // Logo file
+  const logoEl = document.getElementById('param-logo');
+  if (logoEl && logoEl.files[0]) {
+    formData.append('logo_file', logoEl.files[0]);
+  }
+
+  showSpinner(true);
+  try {
+    const resp = await fetch('/api/convert', { method: 'POST', body: formData });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      showResult(null, data.detail || 'Conversion failed');
+    } else {
+      showResult(data, null);
+    }
+  } catch(e) {
+    showResult(null, 'Network error: ' + e.message);
+  } finally {
+    showSpinner(false);
+    goToStep(3);
+  }
+}
+
+function showResult(data, error) {
+  const errContainer = document.getElementById('error-container');
+  const resultContent = document.getElementById('result-content');
+
+  if (error) {
+    errContainer.innerHTML = '<div class="error-box"><strong>Conversion Error</strong>\n' + escapeHtml(error) + '</div>';
+    errContainer.classList.remove('hidden');
+    resultContent.classList.add('hidden');
+  } else {
+    errContainer.classList.add('hidden');
+    resultContent.classList.remove('hidden');
+
+    const btns = document.getElementById('download-buttons');
+    btns.innerHTML =
+      '<a href="' + escapeHtml(data.files.pdf) + '" download="output.pdf" class="btn-download btn-pdf">&#x1F4C4; Download PDF</a>' +
+      '<a href="' + escapeHtml(data.files.docx) + '" download="output.docx" class="btn-download btn-docx">&#x1F4DD; Download Word</a>' +
+      '<a href="' + escapeHtml(data.files.odt) + '" download="output.odt" class="btn-download btn-odt">&#x1F4CB; Download ODT</a>';
+
+    document.getElementById('pdf-preview').src = data.files.pdf;
+  }
+}
+
+// ---- Navigation ----
+const steps = ['step-template', 'step-upload', 'step-params', 'step-result'];
+
+function goToStep(n) {
+  steps.forEach((id, i) => {
+    document.getElementById(id).classList.toggle('hidden', i !== n);
+    const dot = document.getElementById('dot-' + i);
+    dot.classList.toggle('active', i === n);
+    dot.classList.toggle('done', i < n);
+  });
+  if (n === 2) renderParamsForm();
+}
+
+function reset() {
+  selectedTemplateId = null;
+  selectedTemplateMeta = null;
+  mdFile = null;
+  mdContent = '';
+  frontmatter = {};
+  document.getElementById('upload-filename').classList.add('hidden');
+  document.getElementById('btn-next-template').disabled = true;
+  document.getElementById('btn-next-upload').disabled = true;
+  document.getElementById('md-input').value = '';
+  goToStep(0);
+}
+
+// ---- Helpers ----
+function showSpinner(on) {
+  document.getElementById('spinner').classList.toggle('active', on);
+}
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+init();
+</script>
+</body>
+</html>
