@@ -101,9 +101,9 @@ def api_download(session_id: str, filename: str):
     allowed = {"output.pdf", "output.docx", "output.odt"}
     if filename not in allowed:
         raise HTTPException(status_code=404)
-    # Validate session_id is a UUID to prevent path traversal
+    # Validate session_id is a UUID to prevent path traversal; use canonical form
     try:
-        uuid.UUID(session_id)
+        session_id = str(uuid.UUID(session_id))
     except ValueError:
         raise HTTPException(status_code=404)
     path = get_session_dir(session_id) / filename

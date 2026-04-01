@@ -34,12 +34,14 @@ def strip_frontmatter(md_content: str) -> str:
 
 
 def load_template_meta(template_id: str) -> dict:
-    # Validate template_id contains only safe characters (alphanumeric, hyphens, underscores)
-    if not re.match(r'^[a-zA-Z0-9_-]+$', template_id):
+    # Validate template_id and extract safe value from the match to cut taint
+    m = re.fullmatch(r'[a-zA-Z0-9_-]+', template_id)
+    if not m:
         raise ValueError(f"Invalid template ID: {template_id!r}")
-    meta_path = TEMPLATES_DIR / template_id / "meta.json"
+    safe_id = m.group(0)
+    meta_path = TEMPLATES_DIR / safe_id / "meta.json"
     if not meta_path.exists():
-        raise FileNotFoundError(f"Template not found: {template_id!r}")
+        raise FileNotFoundError(f"Template not found: {safe_id!r}")
     with open(meta_path) as f:
         return json.load(f)
 
@@ -78,8 +80,9 @@ def convert(
     session_dir = get_session_dir(session_id)
     session_dir.mkdir(parents=True, exist_ok=True)
 
-    template_dir = TEMPLATES_DIR / template_id
+    # load_template_meta validates template_id; use its path for template_dir
     meta = load_template_meta(template_id)
+    template_dir = TEMPLATES_DIR / meta["id"]
 
     # Write full markdown (with frontmatter) for docx/odt
     input_md = session_dir / "input.md"
@@ -190,8 +193,11 @@ def strip_pandoc_typst_preamble(content: str) -> str:
 
 
 def run_cmd(cmd: list, cwd: str = None, timeout: int = 60):
-    """Run a subprocess command, raise RuntimeError on failure."""
-    result = subprocess.run(
+    """Run a subprocess command, raise RuntimeError on failure.
+
+    cmd is always a list (never passed to a shell), so shell injection is not possible.
+    """
+    result = subprocess.run(  # noqa: S603 – list form, shell=False
         cmd,
         cwd=cwd,
         capture_output=True,
