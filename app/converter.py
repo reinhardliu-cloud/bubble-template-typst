@@ -34,7 +34,12 @@ def strip_frontmatter(md_content: str) -> str:
 
 
 def load_template_meta(template_id: str) -> dict:
+    # Validate template_id contains only safe characters (alphanumeric, hyphens, underscores)
+    if not re.match(r'^[a-zA-Z0-9_-]+$', template_id):
+        raise ValueError(f"Invalid template ID: {template_id!r}")
     meta_path = TEMPLATES_DIR / template_id / "meta.json"
+    if not meta_path.exists():
+        raise FileNotFoundError(f"Template not found: {template_id!r}")
     with open(meta_path) as f:
         return json.load(f)
 

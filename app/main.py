@@ -77,6 +77,10 @@ async def api_convert(
             logo_bytes=logo_bytes,
             logo_filename=logo_filename,
         )
+    except (ValueError, FileNotFoundError) as e:
+        shutil.rmtree(get_session_dir(session_id), ignore_errors=True)
+        session_registry.pop(session_id, None)
+        raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
         shutil.rmtree(get_session_dir(session_id), ignore_errors=True)
         session_registry.pop(session_id, None)
@@ -96,6 +100,11 @@ async def api_convert(
 def api_download(session_id: str, filename: str):
     allowed = {"output.pdf", "output.docx", "output.odt"}
     if filename not in allowed:
+        raise HTTPException(status_code=404)
+    # Validate session_id is a UUID to prevent path traversal
+    try:
+        uuid.UUID(session_id)
+    except ValueError:
         raise HTTPException(status_code=404)
     path = get_session_dir(session_id) / filename
     if not path.exists():
