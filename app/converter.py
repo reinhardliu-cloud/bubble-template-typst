@@ -9,8 +9,9 @@ from pathlib import Path
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
-SESSIONS_DIR = Path("/sessions")
-TEMPLATES_DIR = Path("/app/templates")
+SESSIONS_DIR = Path(os.environ.get("SESSIONS_DIR", "/tmp/sessions"))
+APP_DIR = Path(__file__).resolve().parent
+TEMPLATES_DIR = Path(os.environ.get("TEMPLATES_DIR", APP_DIR / "templates"))
 
 
 def get_session_dir(session_id: str) -> Path:
@@ -46,6 +47,13 @@ def load_template_meta(template_id: str) -> dict:
         return json.load(f)
 
 
+def normalize_template_id(template_id: str) -> str:
+    m = re.fullmatch(r'[a-zA-Z0-9_-]+', template_id)
+    if not m:
+        raise ValueError(f"Invalid template ID: {template_id!r}")
+    return m.group(0)
+
+
 def list_templates() -> list:
     templates = []
     for d in TEMPLATES_DIR.iterdir():
@@ -67,7 +75,7 @@ def convert(
     Full conversion pipeline. Returns dict of output file paths.
     Steps:
     1. Create session dir
-    2. Write input.md (without frontmatter for Pandoc body, with it for DOCX/ODT)
+    2. Write input.md (full markdown, including frontmatter)
     3. Parse frontmatter, merge with overrides (overrides win)
     4. Run pandoc input.md --to=typst -o body.typ
     5. Strip pandoc typst preamble from body.typ (keep only content)
@@ -80,9 +88,9 @@ def convert(
     session_dir = get_session_dir(session_id)
     session_dir.mkdir(parents=True, exist_ok=True)
 
-    # load_template_meta validates template_id; use its path for template_dir
-    meta = load_template_meta(template_id)
-    template_dir = TEMPLATES_DIR / meta["id"]
+    safe_template_id = normalize_template_id(template_id)
+    meta = load_template_meta(safe_template_id)
+    template_dir = TEMPLATES_DIR / safe_template_id
 
     # Write full markdown (with frontmatter) for docx/odt
     input_md = session_dir / "input.md"
@@ -106,7 +114,10 @@ def convert(
     # Handle logo
     logo_path = None
     if logo_bytes:
-        ext = Path(logo_filename).suffix if logo_filename else ".png"
+        allowed_exts = {".png", ".jpg", ".jpeg", ".gif", ".svg"}
+        ext = Path(logo_filename).suffix.lower() if logo_filename else ".png"
+        if ext not in allowed_exts:
+            ext = ".png"
         logo_file = session_dir / f"logo{ext}"
         logo_file.write_bytes(logo_bytes)
         logo_path = str(logo_file)
@@ -124,6 +135,7 @@ def convert(
 
     # Step 6: render Jinja2 wrapper
     env = Environment(loader=FileSystemLoader(str(template_dir)))
+    env.policies["json.dumps_kwargs"] = {"ensure_ascii": False}
     tmpl = env.get_template(meta["wrapper_template"])
 
     main_color = params.get("main-color", "E94845").lstrip("#")
@@ -149,7 +161,7 @@ def convert(
     font_path = str(template_dir / "fonts")
     output_pdf = session_dir / "output.pdf"
     run_cmd(
-        ["typst", "compile", str(main_typ), str(output_pdf), "--font-path", font_path],
+        ["typst", "compile", str(main_typ), str(output_pdf), "--font-path", font_path, "--root", "/"],
         cwd=str(session_dir),
     )
 
@@ -189,7 +201,9 @@ def strip_pandoc_typst_preamble(content: str) -> str:
             start = i + 1
         else:
             break
-    return "\n".join(lines[start:])
+    body = "\n".join(lines[start:])
+    # Pandoc can emit #horizontalrule, which is not available in Typst 0.11.
+    return body.replace("#horizontalrule", "#line(length: 100%)")
 
 
 def run_cmd(cmd: list, cwd: str = None, timeout: int = 60):

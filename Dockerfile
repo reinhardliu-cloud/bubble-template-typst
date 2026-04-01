@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y \
     pandoc \
     wget tar xz-utils \
     fontconfig \
+    fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 # Install typst
@@ -17,7 +18,7 @@ RUN wget -q https://github.com/typst/typst/releases/download/v0.11.1/typst-x86_6
     && typst --version
 
 COPY requirements.txt /tmp/requirements.txt
-RUN pip3 install --no-cache-dir -r /tmp/requirements.txt
+RUN python3.11 -m pip install --no-cache-dir -r /tmp/requirements.txt
 
 # Copy app code
 COPY app/ /app/
@@ -34,4 +35,4 @@ WORKDIR /app
 
 EXPOSE 8080
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["python3.11", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]

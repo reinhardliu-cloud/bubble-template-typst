@@ -1,17 +1,17 @@
-#import "{{ template_path }}/template.typ": *
+#import {{ (template_path ~ '/template.typ')|tojson }}: *
 
 #set outline(title: "Table of contents")
 
 #show: bubble.with(
-  title: "{{ title }}",
-  {% if subtitle %}subtitle: "{{ subtitle }}",
-  {% endif %}author: "{{ author }}",
-  {% if affiliation %}affiliation: "{{ affiliation }}",
-  {% endif %}{% if year %}year: "{{ year }}",
-  {% endif %}{% if class_ %}class: "{{ class_ }}",
-  {% endif %}main-color: "{{ main_color }}",
-  {% if logo_path %}logo: image("{{ logo_path }}"),
-  {% endif %}date: "{{ date }}",
+  title: {{ title|tojson }},
+  {% if subtitle %}subtitle: {{ subtitle|tojson }},
+  {% endif %}author: {{ author|tojson }},
+  {% if affiliation %}affiliation: {{ affiliation|tojson }},
+  {% endif %}{% if year %}year: {{ year|tojson }},
+  {% endif %}{% if class_ %}class: {{ class_|tojson }},
+  {% endif %}main-color: {{ main_color|tojson }},
+  {% if logo_path %}logo: image({{ logo_path|tojson }}),
+  {% endif %}date: {{ date|tojson }},
 )
 
 {{ body }}

@@ -118,7 +118,9 @@
   <div class="card hidden" id="step-upload">
     <div class="step-label">Step 2</div>
     <div class="section-title">Upload your Markdown File</div>
-    <div class="upload-zone" id="upload-zone" onclick="document.getElementById('md-input').click()"
+        <div class="upload-zone" id="upload-zone" role="button" tabindex="0"
+          onclick="document.getElementById('md-input').click()"
+          onkeydown="handleUploadZoneKeydown(event)"
          ondragover="event.preventDefault();this.classList.add('drag-over')"
          ondragleave="this.classList.remove('drag-over')"
          ondrop="handleDrop(event)">
@@ -173,6 +175,7 @@ let selectedTemplateMeta = null;
 let mdFile = null;
 let mdContent = '';
 let frontmatter = {};
+let derivedFileTitle = '';
 
 // ---- Init ----
 async function init() {
@@ -222,8 +225,17 @@ function handleDrop(event) {
     setMdFile(file);
   }
 }
+
+function handleUploadZoneKeydown(event) {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    document.getElementById('md-input').click();
+  }
+}
+
 function setMdFile(file) {
   mdFile = file;
+  derivedFileTitle = deriveTitleFromFilename(file.name);
   const el = document.getElementById('upload-filename');
   el.textContent = '\u2705 ' + file.name;
   el.classList.remove('hidden');
@@ -273,7 +285,8 @@ function renderParamsForm() {
       input.type = 'text';
       input.id = 'param-' + p.key;
       input.name = p.key;
-      input.value = fmValue || defaultValue;
+      const effectiveValue = (p.key === 'title') ? (fmValue || defaultValue || derivedFileTitle) : (fmValue || defaultValue);
+      input.value = effectiveValue;
       input.placeholder = p.label;
       group.appendChild(input);
     } else if (p.type === 'color') {
@@ -413,6 +426,11 @@ function showSpinner(on) {
 }
 function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function deriveTitleFromFilename(filename) {
+  const name = String(filename || '').replace(/\.[^/.]+$/, '');
+  return name.replace(/[_-]+/g, ' ').trim();
 }
 
 init();

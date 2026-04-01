@@ -3,6 +3,7 @@ import uuid
 import json
 import asyncio
 import shutil
+import logging
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from contextlib import asynccontextmanager
@@ -13,19 +14,28 @@ from fastapi.staticfiles import StaticFiles
 
 from converter import convert, list_templates, get_session_dir
 
-SESSIONS_DIR = Path("/sessions")
+SESSIONS_DIR = Path(os.environ.get("SESSIONS_DIR", "/tmp/sessions"))
+APP_DIR = Path(__file__).resolve().parent
+STATIC_DIR = Path(os.environ.get("STATIC_DIR", APP_DIR / "static"))
 SESSION_TTL_MINUTES = 30
 
 # In-memory record of session creation times
 session_registry: dict[str, datetime] = {}
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
     task = asyncio.create_task(cleanup_loop())
-    yield
-    task.cancel()
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="MD→Typst Converter", lifespan=lifespan)
@@ -36,8 +46,16 @@ async def cleanup_loop():
     while True:
         await asyncio.sleep(300)
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=SESSION_TTL_MINUTES)
-        expired = [sid for sid, ts in list(session_registry.items()) if ts < cutoff]
-        for sid in expired:
+        expired_sessions = {sid for sid, ts in list(session_registry.items()) if ts < cutoff}
+
+        # Also scan on-disk sessions so restarts do not leak old folders.
+        for session_dir in SESSIONS_DIR.iterdir():
+            if not session_dir.is_dir():
+                continue
+            if datetime.fromtimestamp(session_dir.stat().st_mtime, tz=timezone.utc) < cutoff:
+                expired_sessions.add(session_dir.name)
+
+        for sid in expired_sessions:
             session_dir = get_session_dir(sid)
             if session_dir.exists():
                 shutil.rmtree(session_dir, ignore_errors=True)
@@ -56,8 +74,25 @@ async def api_convert(
     params: str = Form(default="{}"),
     logo_file: UploadFile = File(default=None),
 ):
-    md_content = (await md_file.read()).decode("utf-8")
-    params_dict = json.loads(params)
+    try:
+        md_bytes = await md_file.read()
+        md_content = md_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="md_file must be UTF-8 encoded text.")
+
+    try:
+        params_dict = json.loads(params)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="params must be valid JSON.")
+
+    if not isinstance(params_dict, dict):
+        raise HTTPException(status_code=400, detail="params must be a JSON object.")
+
+    # If title is missing, default to the uploaded markdown filename stem.
+    if not params_dict.get("title"):
+        fallback_title = Path(md_file.filename or "").stem.strip()
+        if fallback_title:
+            params_dict["title"] = fallback_title
 
     logo_bytes = None
     logo_filename = None
@@ -69,7 +104,7 @@ async def api_convert(
     session_registry[session_id] = datetime.now(timezone.utc)
 
     try:
-        files = convert(
+        convert(
             session_id=session_id,
             md_content=md_content,
             template_id=template_id,
@@ -84,7 +119,8 @@ async def api_convert(
     except RuntimeError as e:
         shutil.rmtree(get_session_dir(session_id), ignore_errors=True)
         session_registry.pop(session_id, None)
-        raise HTTPException(status_code=422, detail=str(e))
+        logger.exception("Conversion failed for session %s", session_id)
+        raise HTTPException(status_code=422, detail="Conversion failed. Please check your input and try again.")
 
     return JSONResponse({
         "session_id": session_id,
@@ -114,8 +150,14 @@ def api_download(session_id: str, filename: str):
         "output.docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "output.odt":  "application/vnd.oasis.opendocument.text",
     }
+    if filename == "output.pdf":
+        return FileResponse(
+            str(path),
+            media_type=media_types[filename],
+            headers={"Content-Disposition": "inline"},
+        )
     return FileResponse(str(path), media_type=media_types[filename], filename=filename)
 
 
 # Serve static frontend
-app.mount("/", StaticFiles(directory="/app/static", html=True), name="static")
+app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
