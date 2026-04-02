@@ -1,0 +1,45 @@
+name: release-themes
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build theme zip assets
+        run: |
+          set -euo pipefail
+          mkdir -p dist/themes
+
+          # Package built-in bubble theme
+          if [ -f app/templates/bubble/meta.json ]; then
+            (cd app/templates && zip -r ../../dist/themes/bubble.zip bubble)
+          fi
+
+          # Package all custom themes tracked in repo
+          if [ -d app/templates_custom ]; then
+            for d in app/templates_custom/*; do
+              [ -d "$d" ] || continue
+              [ -f "$d/meta.json" ] || continue
+              name="$(basename "$d")"
+              (cd app/templates_custom && zip -r ../../dist/themes/${name}.zip "$name")
+            done
+          fi
+
+          ls -lah dist/themes
+
+      - name: Create GitHub Release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/themes/*.zip
