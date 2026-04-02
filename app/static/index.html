@@ -133,6 +133,8 @@
     <div class="theme-upload-row">
       <input type="file" id="theme-zip-input" accept=".zip" style="display:none" onchange="handleThemeZipSelect(event)">
       <button type="button" class="btn btn-secondary" onclick="document.getElementById('theme-zip-input').click()">Upload Theme Zip</button>
+      <input type="text" id="theme-github-input" placeholder="owner/repo" style="min-width:220px;padding:0.6rem 0.75rem;border:1.5px solid #dfe6e9;border-radius:6px;">
+      <button type="button" class="btn btn-secondary" onclick="handleThemeGithubInstall()">Install from GitHub</button>
       <span class="theme-upload-note" id="theme-upload-note">Required files: meta.json, template.typ, wrapper.typ.jinja</span>
     </div>
     <div class="actions-row">
@@ -309,6 +311,44 @@ async function handleThemeZipSelect(event) {
   } finally {
     showSpinner(false);
     event.target.value = '';
+  }
+}
+
+async function handleThemeGithubInstall() {
+  const input = document.getElementById('theme-github-input');
+  const repo = (input.value || '').trim();
+  if (!repo) {
+    showGlobalError('Please enter a GitHub repository in format owner/repo');
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append('github_repo', repo);
+  if (sessionId) {
+    formData.append('session_id', sessionId);
+  }
+
+  const note = document.getElementById('theme-upload-note');
+  note.textContent = 'Installing theme from GitHub release...';
+  showSpinner(true);
+  try {
+    const resp = await fetch('/api/theme/install', { method: 'POST', body: formData });
+    const data = await resp.json();
+    if (!resp.ok) {
+      throw new Error(data.detail || 'GitHub install failed');
+    }
+    sessionId = data.session_id;
+    note.textContent = '✅ Installed: ' + data.template.name;
+    selectedScenario = 'custom';
+    document.querySelectorAll('.scenario-chip').forEach(c => c.classList.remove('active'));
+    const customChip = document.querySelector('.scenario-chip[data-scenario="custom"]');
+    if (customChip) customChip.classList.add('active');
+    await refreshTemplates();
+  } catch (e) {
+    showGlobalError(String(e.message || e));
+    note.textContent = 'Install failed. Ensure repo has a release zip and gh is authenticated.';
+  } finally {
+    showSpinner(false);
   }
 }
 

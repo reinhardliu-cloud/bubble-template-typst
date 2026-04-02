@@ -13,6 +13,7 @@ SESSIONS_DIR = Path(os.environ.get("SESSIONS_DIR", "/tmp/sessions"))
 APP_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = Path(os.environ.get("TEMPLATES_DIR", APP_DIR / "templates"))
 CUSTOM_TEMPLATES_DIR = Path(os.environ.get("CUSTOM_TEMPLATES_DIR", APP_DIR / "templates_custom"))
+CONVERTER_VERSION = os.environ.get("CONVERTER_VERSION", "dev")
 
 
 def get_session_dir(session_id: str) -> Path:
@@ -100,6 +101,7 @@ def convert(
     session_id: str,
     md_content: str,
     template_id: str,
+    template_version: str | None,
     params_override: dict,
     logo_bytes: bytes | None = None,
     logo_filename: str | None = None,
@@ -124,6 +126,13 @@ def convert(
     safe_template_id = normalize_template_id(template_id)
     template_dir = resolve_template_dir(safe_template_id, session_id=session_id)
     meta = load_template_meta(template_dir)
+
+    resolved_template_version = str(meta.get("version", "local"))
+    if template_version and str(template_version) != resolved_template_version:
+        raise ValueError(
+            f"Requested template_version={template_version!r} does not match "
+            f"installed version {resolved_template_version!r}"
+        )
 
     # Write full markdown (with frontmatter) for docx/odt
     input_md = session_dir / "input.md"
@@ -212,10 +221,25 @@ def convert(
         cwd=str(session_dir),
     )
 
+    build_id = str(uuid.uuid4())
+    build_meta = {
+        "build_id": build_id,
+        "theme_id": safe_template_id,
+        "theme_version": resolved_template_version,
+        "converter_version": CONVERTER_VERSION,
+        "typst_version": _read_cmd_version("typst"),
+        "pandoc_version": _read_cmd_version("pandoc"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    # Persist build metadata with the generated artifacts for reproducibility.
+    (session_dir / "build_meta.json").write_text(json.dumps(build_meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
     return {
         "pdf": str(output_pdf),
         "docx": str(output_docx),
         "odt": str(output_odt),
+        "build": build_meta,
     }
 
 
@@ -257,3 +281,17 @@ def run_cmd(cmd: list, cwd: str = None, timeout: int = 60):
             f"stdout: {result.stdout}\nstderr: {result.stderr}"
         )
     return result
+
+
+def _read_cmd_version(cmd: str) -> str:
+    """Read tool version in a fail-safe way for build metadata."""
+    try:
+        result = subprocess.run([cmd, "--version"], capture_output=True, text=True, timeout=5)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return "unknown"
+
+    if result.returncode != 0:
+        return "unknown"
+
+    first_line = (result.stdout or "").splitlines()
+    return first_line[0].strip() if first_line else "unknown"

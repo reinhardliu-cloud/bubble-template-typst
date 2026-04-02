@@ -4,6 +4,9 @@ import json
 import asyncio
 import shutil
 import logging
+import tempfile
+import subprocess
+import re
 from typing import Optional
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -57,6 +60,67 @@ def ensure_session(session_id: str | None = None) -> str:
     return session_id
 
 
+def _run_gh_json(args: list[str]) -> list[dict]:
+    """Run a gh command that returns JSON and parse it."""
+    try:
+        result = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=30)
+    except FileNotFoundError as exc:
+        raise ValueError("gh CLI not found. Install from https://cli.github.com") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError("gh command timed out") from exc
+
+    if result.returncode != 0:
+        raise ValueError((result.stderr or "gh command failed").strip())
+
+    try:
+        data = json.loads(result.stdout or "[]")
+    except json.JSONDecodeError as exc:
+        raise ValueError("Failed to parse gh command output") from exc
+
+    if not isinstance(data, list):
+        raise ValueError("Unexpected gh output format")
+    return data
+
+
+def _install_theme_from_github(repo: str, session_themes_dir: Path) -> dict:
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo or ""):
+        raise ValueError("github_repo must be in format owner/repo")
+
+    releases = _run_gh_json(["release", "list", "-R", repo, "--limit", "1", "--json", "tagName"])
+    if not releases:
+        raise ValueError(f"No releases found for {repo}")
+
+    tag_name = releases[0].get("tagName")
+    if not tag_name:
+        raise ValueError(f"No valid release tag found for {repo}")
+
+    with tempfile.TemporaryDirectory(prefix="theme-gh-") as tmpdir:
+        try:
+            download = subprocess.run(
+                ["gh", "release", "download", tag_name, "-R", repo, "-p", "*.zip", "-D", tmpdir],
+                capture_output=True,
+                text=True,
+                timeout=90,
+            )
+        except FileNotFoundError as exc:
+            raise ValueError("gh CLI not found. Install from https://cli.github.com") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise ValueError("gh release download timed out") from exc
+
+        if download.returncode != 0:
+            raise ValueError((download.stderr or "Failed to download release zip").strip())
+
+        zips = sorted(Path(tmpdir).glob("*.zip"))
+        if not zips:
+            raise ValueError(f"No .zip release assets found for {repo}@{tag_name}")
+
+        zip_bytes = zips[0].read_bytes()
+        meta = install_theme_package(zip_bytes, session_themes_dir)
+        meta.setdefault("source", "github-release")
+        meta.setdefault("source_ref", f"{repo}@{tag_name}")
+        return meta
+
+
 async def cleanup_loop():
     """Background task: every 5 minutes, delete sessions older than 30 minutes."""
     while True:
@@ -108,10 +172,26 @@ async def api_theme_upload(
     return JSONResponse({"session_id": safe_session_id, "template": meta})
 
 
+@app.post("/api/theme/install")
+async def api_theme_install(
+    github_repo: str = Form(...),
+    session_id: Optional[str] = Form(default=None),
+):
+    safe_session_id = ensure_session(session_id)
+
+    try:
+        meta = _install_theme_from_github(github_repo.strip(), get_session_themes_dir(safe_session_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return JSONResponse({"session_id": safe_session_id, "template": meta})
+
+
 @app.post("/api/convert")
 async def api_convert(
     md_file: UploadFile = File(...),
     template_id: str = Form(...),
+    template_version: Optional[str] = Form(default=None),
     params: str = Form(default="{}"),
     logo_file: UploadFile = File(default=None),
     session_id: Optional[str] = Form(default=None),
@@ -145,10 +225,11 @@ async def api_convert(
     safe_session_id = ensure_session(session_id)
 
     try:
-        convert(
+        result = convert(
             session_id=safe_session_id,
             md_content=md_content,
             template_id=template_id,
+            template_version=template_version,
             params_override=params_dict,
             logo_bytes=logo_bytes,
             logo_filename=logo_filename,
@@ -171,7 +252,8 @@ async def api_convert(
             "pdf":  f"/api/session/{safe_session_id}/output.pdf",
             "docx": f"/api/session/{safe_session_id}/output.docx",
             "odt":  f"/api/session/{safe_session_id}/output.odt",
-        }
+        },
+        "build": result.get("build", {}),
     })
 
 
