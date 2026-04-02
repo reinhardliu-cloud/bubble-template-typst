@@ -18,20 +18,66 @@ from typing import Optional
 from theme_package import install_theme_package
 
 
-def run_gh_command(args: list[str]) -> tuple[int, str, str]:
-    """Run a gh (GitHub CLI) command and return exit code, stdout, stderr."""
+def run_command(cmd: list[str], timeout: int = 60) -> tuple[int, str, str]:
+    """Run a command and return exit code, stdout, stderr."""
     try:
         result = subprocess.run(
-            ["gh"] + args,
+            cmd,
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=timeout,
         )
         return result.returncode, result.stdout, result.stderr
     except FileNotFoundError:
-        return 127, "", "gh CLI not found. Install from https://cli.github.com"
+        return 127, "", f"Command not found: {cmd[0]}"
     except subprocess.TimeoutExpired:
-        return 124, "", "Command timed out"
+        return 124, "", f"Command timed out: {' '.join(cmd)}"
+
+
+def run_gh_command(args: list[str]) -> tuple[int, str, str]:
+    """Run a gh (GitHub CLI) command and return exit code, stdout, stderr."""
+    code, stdout, stderr = run_command(["gh"] + args, timeout=30)
+    if code == 127:
+        return 127, "", "gh CLI not found. Install from https://cli.github.com"
+    return code, stdout, stderr
+
+
+def run_typst_init(package_spec: str, output_dir: Path) -> bool:
+    """Run `typst init <package_spec> <output_dir>` similar to Typst CLI usage."""
+    print(f"🧩 Initializing Typst package: {package_spec}")
+    print(f"📁 Output directory: {output_dir}")
+
+    output_dir = output_dir.resolve()
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+
+    code, _, stderr = run_command(["typst", "init", package_spec, str(output_dir)], timeout=120)
+    if code == 127:
+        print("❌ typst command not found. Please install Typst first.")
+        return False
+    if code != 0:
+        if "requires typst" in stderr.lower():
+            print("❌ typst init failed: package requires a newer Typst version.")
+            print(f"   Details: {stderr.strip()}")
+            print("   Suggestion: upgrade Typst, then run the init command again.")
+            return False
+        print(f"❌ typst init failed: {stderr.strip()}")
+        return False
+
+    print("✅ typst init completed successfully")
+    return True
+
+
+def derive_init_output_dir(package_spec: str, base_dir: Path) -> Path:
+    """Derive output folder name from package spec like @preview/grape-suite:3.1.0."""
+    # Keep only package name + version for readable local folder name.
+    m = re.match(r"^@?[^/]+/([^:]+):(.+)$", package_spec)
+    if m:
+        package_name, version = m.group(1), m.group(2)
+        folder = f"{package_name}-{version}"
+    else:
+        folder = re.sub(r"[^a-zA-Z0-9._-]+", "-", package_spec).strip("-")
+        folder = folder or "typst-template"
+    return base_dir / folder
 
 
 def download_gh_release(repo: str, asset_pattern: str, output_path: Path) -> bool:
@@ -196,7 +242,7 @@ def list_installed_themes(install_dir: Path) -> bool:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Typst template manager - install themes from GitHub or local files",
+    description="Typst template manager - install themes from GitHub/local files or run typst init",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -205,6 +251,9 @@ Examples:
 
   # Install from local zip file
   python cli.py install owner/repo/release/theme.zip
+
+    # Initialize a Typst package (same style as typst CLI)
+    python cli.py init @preview/grape-suite:3.1.0
 
   # List installed themes
   python cli.py list
@@ -243,6 +292,22 @@ Examples:
         type=Path,
         help="Path to theme zip file",
     )
+
+    # init command (typst init style)
+    init_parser = subparsers.add_parser(
+        "init",
+        help="Run typst init with a package spec (e.g. @preview/grape-suite:3.1.0)",
+    )
+    init_parser.add_argument(
+        "package_spec",
+        help="Typst package spec, e.g. @preview/grape-suite:3.1.0",
+    )
+    init_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Output directory for typst init (default: app/templates_custom/<package>-<version>)",
+    )
     
     # list command
     subparsers.add_parser(
@@ -265,6 +330,11 @@ Examples:
     
     elif args.command == "list":
         success = list_installed_themes(args.install_dir)
+        sys.exit(0 if success else 1)
+
+    elif args.command == "init":
+        output_dir = args.output_dir or derive_init_output_dir(args.package_spec, args.install_dir)
+        success = run_typst_init(args.package_spec, output_dir)
         sys.exit(0 if success else 1)
     
     else:
