@@ -1,4 +1,4 @@
-# Quick Start Guide - Testing Theme Upload & CLI
+ # Quick Start Guide - Testing Theme Upload & CLI
 
 ## Test 1: Web UI Theme Upload
 
