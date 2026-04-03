@@ -2,10 +2,12 @@ import json
 import re
 import uuid
 import zipfile
+import tarfile
+import io
 from pathlib import Path
 
 REQUIRED_FILES = {"meta.json", "template.typ", "wrapper.typ.jinja"}
-MAX_THEME_ZIP_BYTES = 5 * 1024 * 1024
+MAX_THEME_BYTES = 5 * 1024 * 1024
 
 
 def _sanitize_slug(value: str) -> str:
@@ -48,8 +50,8 @@ def _load_meta(meta_path: Path) -> dict:
 def install_theme_package(zip_bytes: bytes, session_themes_dir: Path) -> dict:
     if not zip_bytes:
         raise ValueError("Theme package is empty")
-    if len(zip_bytes) > MAX_THEME_ZIP_BYTES:
-        raise ValueError(f"Theme package is too large (max {MAX_THEME_ZIP_BYTES // (1024 * 1024)}MB)")
+    if len(zip_bytes) > MAX_THEME_BYTES:
+        raise ValueError(f"Theme package is too large (max {MAX_THEME_BYTES // (1024 * 1024)}MB)")
 
     session_themes_dir.mkdir(parents=True, exist_ok=True)
 
@@ -127,3 +129,92 @@ def install_theme_package(zip_bytes: bytes, session_themes_dir: Path) -> dict:
         raise ValueError("theme_zip must be a valid zip archive") from exc
     finally:
         tmp_zip.unlink(missing_ok=True)
+
+
+def install_theme_package_from_tar(tar_bytes: bytes, session_themes_dir: Path) -> dict:
+    """Install theme from tar.gz archive (compatible with zip-based installation)."""
+    if not tar_bytes:
+        raise ValueError("Theme package is empty")
+    if len(tar_bytes) > MAX_THEME_BYTES:
+        raise ValueError(f"Theme package is too large (max {MAX_THEME_BYTES // (1024 * 1024)}MB)")
+
+    session_themes_dir.mkdir(parents=True, exist_ok=True)
+
+    tmp_tar = session_themes_dir / f"upload-{uuid.uuid4().hex}.tar.gz"
+    tmp_tar.write_bytes(tar_bytes)
+
+    try:
+        with tarfile.open(tmp_tar, "r:*") as tf:
+            members = tf.getmembers()
+            entries = [m.name for m in members]
+            if not entries:
+                raise ValueError("Theme package tar is empty")
+
+            for entry in entries:
+                if not _validate_zip_entry(entry):
+                    raise ValueError("Theme package contains unsafe paths")
+
+            present = _collect_required_present(entries)
+            missing = REQUIRED_FILES - present
+            if missing:
+                missing_list = ", ".join(sorted(missing))
+                raise ValueError(f"Theme package missing required files: {missing_list}")
+
+            meta_candidates = [
+                e for e in entries
+                if e and not e.endswith("/") and e.replace("\\", "/").rsplit("/", 1)[-1] == "meta.json"
+            ]
+            if len(meta_candidates) != 1:
+                raise ValueError("Theme package must contain exactly one meta.json")
+
+            meta_entry = meta_candidates[0]
+            root_prefix = ""
+            if "/" in meta_entry:
+                root_prefix = meta_entry.rsplit("/", 1)[0] + "/"
+
+            for required in ("template.typ", "wrapper.typ.jinja"):
+                if f"{root_prefix}{required}" not in entries:
+                    raise ValueError(
+                        "Required files must be in the same directory as meta.json: "
+                        "template.typ and wrapper.typ.jinja"
+                    )
+
+            theme_root_name = _sanitize_slug(Path(meta_entry).parent.name)
+            theme_id = f"custom-{theme_root_name}-{uuid.uuid4().hex[:8]}"
+            install_dir = session_themes_dir / theme_id
+            install_dir.mkdir(parents=True, exist_ok=False)
+
+            for member in members:
+                if member.isdir():
+                    continue
+                member_name = member.name.replace("\\", "/")
+                if member_name.endswith("/"):
+                    continue
+                rel_name = member_name
+                if root_prefix:
+                    if not member_name.startswith(root_prefix):
+                        continue
+                    rel_name = member_name[len(root_prefix):]
+                    if not rel_name:
+                        continue
+
+                dest = install_dir / rel_name
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                src = tf.extractfile(member)
+                if src:
+                    with src, dest.open("wb") as dst:
+                        dst.write(src.read())
+
+        meta_path = install_dir / "meta.json"
+        meta = _load_meta(meta_path)
+        meta["id"] = theme_id
+        meta.setdefault("description", "Uploaded custom theme")
+        meta.setdefault("wrapper_template", "wrapper.typ.jinja")
+        with meta_path.open("w", encoding="utf-8") as fh:
+            json.dump(meta, fh, ensure_ascii=False, indent=2)
+
+        return meta
+    except (tarfile.TarError, EOFError) as exc:
+        raise ValueError("theme_tar must be a valid tar.gz archive") from exc
+    finally:
+        tmp_tar.unlink(missing_ok=True)

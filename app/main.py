@@ -7,6 +7,7 @@ import logging
 import tempfile
 import subprocess
 import re
+import sys
 from typing import Optional
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -17,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from converter import convert, list_templates, get_session_dir, get_session_themes_dir
-from theme_package import install_theme_package
+from theme_package import install_theme_package, install_theme_package_from_tar
 
 SESSIONS_DIR = Path(os.environ.get("SESSIONS_DIR", "/tmp/sessions"))
 APP_DIR = Path(__file__).resolve().parent
@@ -27,6 +28,10 @@ SESSION_TTL_MINUTES = 30
 # In-memory record of session creation times
 session_registry: dict[str, datetime] = {}
 logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 
 @asynccontextmanager
@@ -121,6 +126,164 @@ def _install_theme_from_github(repo: str, session_themes_dir: Path) -> dict:
         return meta
 
 
+def _install_theme_from_github_via_cli(repo: str, session_themes_dir: Path) -> dict:
+    """Install a theme by invoking the CLI command chain used by terminal users."""
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo or ""):
+        raise ValueError("github_repo must be in format owner/repo")
+
+    session_themes_dir.mkdir(parents=True, exist_ok=True)
+    before_dirs = {p.name for p in session_themes_dir.iterdir() if p.is_dir()}
+
+    cli_script = APP_DIR / "cli.py"
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(cli_script),
+                "--install-dir",
+                str(session_themes_dir),
+                "install-github",
+                repo,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+            cwd=str(APP_DIR),
+        )
+    except FileNotFoundError as exc:
+        raise ValueError("Python runtime not found for CLI install") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError("CLI install timed out") from exc
+
+    if result.returncode != 0:
+        message = (result.stderr or result.stdout or "CLI install failed").strip()
+        raise ValueError(message)
+
+    after_dirs = [p for p in session_themes_dir.iterdir() if p.is_dir()]
+    new_dirs = [p for p in after_dirs if p.name not in before_dirs]
+    if new_dirs:
+        installed_dir = max(new_dirs, key=lambda p: p.stat().st_mtime)
+    elif after_dirs:
+        installed_dir = max(after_dirs, key=lambda p: p.stat().st_mtime)
+    else:
+        raise ValueError("CLI install succeeded but no installed theme directory was found")
+
+    meta_path = installed_dir / "meta.json"
+    if not meta_path.exists():
+        raise ValueError("CLI install succeeded but meta.json is missing")
+
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("Failed to read installed theme metadata") from exc
+
+    if not isinstance(meta, dict):
+        raise ValueError("Installed theme metadata format is invalid")
+
+    meta.setdefault("source", "github-cli")
+    meta.setdefault("source_ref", repo)
+    return meta
+
+
+def _extract_repo_from_input(raw_value: str) -> str:
+    """Accept owner/repo or a full command/url string and extract owner/repo."""
+    value = (raw_value or "").strip()
+    if not value:
+        raise ValueError("github_repo is required")
+
+    # Direct owner/repo input.
+    if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value):
+        return value
+
+    # Common CLI form: install-github owner/repo
+    cli_match = re.search(r"install-github\s+([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)", value)
+    if cli_match:
+        return cli_match.group(1)
+
+    # GitHub URL form: github.com/owner/repo or https://github.com/owner/repo(.git)
+    url_match = re.search(
+        r"(?:https?://)?(?:www\.)?github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?:\.git)?",
+        value,
+    )
+    if url_match:
+        return url_match.group(1)
+
+    # Last fallback: any owner/repo-like token in the string.
+    token_match = re.search(r"\b([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\b", value)
+    if token_match:
+        return token_match.group(1)
+
+    raise ValueError(
+        "Could not extract owner/repo from input. Paste owner/repo or a CLI command containing install-github owner/repo"
+    )
+
+
+def _init_typst_package_as_theme(package_spec: str, session_themes_dir: Path) -> dict:
+    """Initialize a Typst package and make it available as a template."""
+    package_spec = (package_spec or "").strip()
+    if not package_spec:
+        raise ValueError("package_spec is required")
+
+    session_themes_dir.mkdir(parents=True, exist_ok=True)
+    
+    cli_script = APP_DIR / "cli.py"
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(cli_script),
+                "--install-dir",
+                str(session_themes_dir),
+                "init",
+                package_spec,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+            cwd=str(APP_DIR),
+        )
+    except FileNotFoundError as exc:
+        raise ValueError("Python runtime not found for CLI init") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError("CLI init timed out") from exc
+
+    if result.returncode != 0:
+        message = (result.stderr or result.stdout or "CLI init failed").strip()
+        raise ValueError(message)
+
+    after_dirs = [p for p in session_themes_dir.iterdir() if p.is_dir()]
+    if not after_dirs:
+        raise ValueError("CLI init succeeded but no output directory was found")
+
+    installed_dir = max(after_dirs, key=lambda p: p.stat().st_mtime)
+    
+    meta_path = installed_dir / "meta.json"
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError("Failed to read package metadata") from exc
+    else:
+        package_name = package_spec.split("/")[-1].split(":")[0] if "/" in package_spec else package_spec
+        theme_id = f"typst-init-{package_name}-{uuid.uuid4().hex[:8]}"
+        meta = {
+            "id": theme_id,
+            "name": package_name,
+            "description": f"Typst package: {package_spec}",
+            "scenario": "technical",
+            "author": "Typst",
+        }
+        meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    if not isinstance(meta, dict):
+        raise ValueError("Package metadata format is invalid")
+
+    meta.setdefault("id", f"custom-{uuid.uuid4().hex[:8]}")
+    meta.setdefault("source", "typst-init")
+    meta.setdefault("source_ref", package_spec)
+    return meta
+
+
 async def cleanup_loop():
     """Background task: every 5 minutes, delete sessions older than 30 minutes."""
     while True:
@@ -155,17 +318,24 @@ def api_templates(session_id: Optional[str] = None):
 
 @app.post("/api/theme/upload")
 async def api_theme_upload(
-    theme_zip: UploadFile = File(...),
+    theme_file: UploadFile = File(...),
     session_id: Optional[str] = Form(default=None),
 ):
-    if not theme_zip.filename or not theme_zip.filename.lower().endswith(".zip"):
-        raise HTTPException(status_code=400, detail="theme_zip must be a .zip file")
+    filename = (theme_file.filename or "").lower()
+    is_zip = filename.endswith(".zip")
+    is_tar = filename.endswith(".tar.gz") or filename.endswith(".tgz")
+    
+    if not (is_zip or is_tar):
+        raise HTTPException(status_code=400, detail="theme_file must be .zip or .tar.gz")
 
     safe_session_id = ensure_session(session_id)
 
-    zip_bytes = await theme_zip.read()
+    file_bytes = await theme_file.read()
     try:
-        meta = install_theme_package(zip_bytes, get_session_themes_dir(safe_session_id))
+        if is_zip:
+            meta = install_theme_package(file_bytes, get_session_themes_dir(safe_session_id))
+        else:
+            meta = install_theme_package_from_tar(file_bytes, get_session_themes_dir(safe_session_id))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -176,11 +346,33 @@ async def api_theme_upload(
 async def api_theme_install(
     github_repo: str = Form(...),
     session_id: Optional[str] = Form(default=None),
+    install_via_cli: bool = Form(default=False),
 ):
     safe_session_id = ensure_session(session_id)
 
     try:
-        meta = _install_theme_from_github(github_repo.strip(), get_session_themes_dir(safe_session_id))
+        repo = _extract_repo_from_input(github_repo)
+        session_themes_dir = get_session_themes_dir(safe_session_id)
+        if install_via_cli:
+            meta = _install_theme_from_github_via_cli(repo, session_themes_dir)
+        else:
+            meta = _install_theme_from_github(repo, session_themes_dir)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return JSONResponse({"session_id": safe_session_id, "template": meta})
+
+
+@app.post("/api/typst/init")
+async def api_typst_init(
+    package_spec: str = Form(...),
+    session_id: Optional[str] = Form(default=None),
+):
+    """Initialize a Typst package and make it available as a template."""
+    safe_session_id = ensure_session(session_id)
+
+    try:
+        meta = _init_typst_package_as_theme(package_spec, get_session_themes_dir(safe_session_id))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -196,15 +388,21 @@ async def api_convert(
     logo_file: UploadFile = File(default=None),
     session_id: Optional[str] = Form(default=None),
 ):
+    logger.info(f"[CONVERT] Starting conversion. File: {md_file.filename}, Template: {template_id}, Session: {session_id}")
+    
     try:
         md_bytes = await md_file.read()
         md_content = md_bytes.decode("utf-8")
-    except UnicodeDecodeError:
+        logger.info(f"[CONVERT] MD file read successfully. Size: {len(md_bytes)} bytes")
+    except UnicodeDecodeError as e:
+        logger.error(f"[CONVERT] Unicode decode error: {e}")
         raise HTTPException(status_code=400, detail="md_file must be UTF-8 encoded text.")
 
     try:
         params_dict = json.loads(params)
-    except json.JSONDecodeError:
+        logger.info(f"[CONVERT] Params parsed: {params_dict}")
+    except json.JSONDecodeError as e:
+        logger.error(f"[CONVERT] JSON parse error: {e}")
         raise HTTPException(status_code=400, detail="params must be valid JSON.")
 
     if not isinstance(params_dict, dict):
@@ -215,16 +413,20 @@ async def api_convert(
         fallback_title = Path(md_file.filename or "").stem.strip()
         if fallback_title:
             params_dict["title"] = fallback_title
+        logger.info(f"[CONVERT] Title set to: {params_dict.get('title')}")
 
     logo_bytes = None
     logo_filename = None
     if logo_file and logo_file.filename:
         logo_bytes = await logo_file.read()
         logo_filename = logo_file.filename
+        logger.info(f"[CONVERT] Logo file read. Size: {len(logo_bytes) if logo_bytes else 0} bytes")
 
     safe_session_id = ensure_session(session_id)
+    logger.info(f"[CONVERT] Session initialized: {safe_session_id}")
 
     try:
+        logger.info(f"[CONVERT] Calling convert() function...")
         result = convert(
             session_id=safe_session_id,
             md_content=md_content,
@@ -234,18 +436,22 @@ async def api_convert(
             logo_bytes=logo_bytes,
             logo_filename=logo_filename,
         )
+        logger.info(f"[CONVERT] Conversion completed successfully for session {safe_session_id}")
     except (ValueError, FileNotFoundError) as e:
+        logger.error(f"[CONVERT] ValueError/FileNotFoundError: {e}", exc_info=True)
         if not session_id:
             shutil.rmtree(get_session_dir(safe_session_id), ignore_errors=True)
             session_registry.pop(safe_session_id, None)
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
+        logger.error(f"[CONVERT] RuntimeError: {e}", exc_info=True)
         if not session_id:
             shutil.rmtree(get_session_dir(safe_session_id), ignore_errors=True)
             session_registry.pop(safe_session_id, None)
         logger.exception("Conversion failed for session %s", safe_session_id)
         raise HTTPException(status_code=422, detail="Conversion failed. Please check your input and try again.")
 
+    logger.info(f"[CONVERT] Returning result for session {safe_session_id}")
     return JSONResponse({
         "session_id": safe_session_id,
         "files": {

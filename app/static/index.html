@@ -27,6 +27,7 @@
     display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;
   }
   .theme-upload-note { font-size: 0.8rem; color: #636e72; }
+  .theme-cli-toggle { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; color: #636e72; }
 
   /* Template cards */
   .template-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; }
@@ -75,12 +76,87 @@
   .btn-odt { background: #27ae60; color: white; }
   .btn-odt:hover { background: #1e8449; }
 
-  /* Spinner */
-  .spinner-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100; align-items: center; justify-content: center; flex-direction: column; gap: 1.5rem; }
+  /* Conversion progress */
+  .spinner-overlay { display: none; position: fixed; inset: 0; background: rgba(28,25,23,0.72); z-index: 100; align-items: center; justify-content: center; padding: 1.5rem; }
   .spinner-overlay.active { display: flex; }
-  .spinner { width: 56px; height: 56px; border: 5px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  .progress-panel {
+    width: min(100%, 540px);
+    background: #1C1917;
+    color: #F8F7F4;
+    border: 1px solid rgba(248,247,244,0.12);
+    border-radius: 16px;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.38);
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .progress-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+  .progress-title { font-size: 1.3rem; font-weight: 700; color: #F8F7F4; }
+  .progress-subtitle { color: rgba(248,247,244,0.76); font-size: 0.92rem; line-height: 1.5; }
+  .progress-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 999px;
+    padding: 0.42rem 0.78rem;
+    background: rgba(233,72,69,0.14);
+    color: #F8B4B2;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+  }
+  .progress-track { width: 100%; height: 10px; border-radius: 999px; background: rgba(248,247,244,0.12); overflow: hidden; }
+  .progress-fill {
+    width: 0%;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #E94845 0%, #F37572 100%);
+    transition: width 0.35s ease;
+  }
+  .progress-meta { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.82rem; color: rgba(248,247,244,0.72); }
+  .progress-steps { display: grid; gap: 0.65rem; }
+  .progress-step {
+    display: grid;
+    grid-template-columns: 1.4rem 1fr auto;
+    gap: 0.75rem;
+    align-items: center;
+    padding: 0.72rem 0.85rem;
+    border-radius: 12px;
+    background: rgba(248,247,244,0.04);
+    border: 1px solid rgba(248,247,244,0.08);
+    transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+  }
+  .progress-step.is-active {
+    background: rgba(233,72,69,0.1);
+    border-color: rgba(233,72,69,0.32);
+    transform: translateY(-1px);
+  }
+  .progress-step.is-done {
+    background: rgba(22,163,74,0.1);
+    border-color: rgba(22,163,74,0.25);
+  }
+  .progress-step-icon {
+    width: 1.4rem;
+    height: 1.4rem;
+    border-radius: 999px;
+    border: 1px solid rgba(248,247,244,0.18);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    color: rgba(248,247,244,0.82);
+  }
+  .progress-step.is-active .progress-step-icon { border-color: rgba(233,72,69,0.6); color: #F8B4B2; }
+  .progress-step.is-done .progress-step-icon { border-color: rgba(22,163,74,0.45); color: #86EFAC; }
+  .progress-step-label { font-size: 0.92rem; font-weight: 600; color: #F8F7F4; }
+  .progress-step-state { font-size: 0.76rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: rgba(248,247,244,0.62); }
+  .progress-step.is-active .progress-step-state { color: #F8B4B2; }
+  .progress-step.is-done .progress-step-state { color: #86EFAC; }
+  .spinner { width: 18px; height: 18px; border: 2px solid rgba(248,247,244,0.22); border-top-color: #F8F7F4; border-radius: 50%; animation: spin 0.8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .spinner-text { color: white; font-size: 1.1rem; font-weight: 500; }
 
   /* Results */
   .result-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
@@ -131,11 +207,17 @@
       <div style="color:#b2bec3">Loading templates&hellip;</div>
     </div>
     <div class="theme-upload-row">
-      <input type="file" id="theme-zip-input" accept=".zip" style="display:none" onchange="handleThemeZipSelect(event)">
-      <button type="button" class="btn btn-secondary" onclick="document.getElementById('theme-zip-input').click()">Upload Theme Zip</button>
-      <input type="text" id="theme-github-input" placeholder="owner/repo" style="min-width:220px;padding:0.6rem 0.75rem;border:1.5px solid #dfe6e9;border-radius:6px;">
+      <input type="file" id="theme-zip-input" accept=".zip,.tar.gz,.tgz" style="display:none" onchange="handleThemeFileSelect(event)">
+      <button type="button" class="btn btn-secondary" onclick="document.getElementById('theme-zip-input').click()">Upload Theme</button>
+      <input type="text" id="theme-github-input" placeholder="owner/repo or paste CLI command" style="min-width:220px;padding:0.6rem 0.75rem;border:1.5px solid #dfe6e9;border-radius:6px;">
+      <label class="theme-cli-toggle"><input type="checkbox" id="theme-install-via-cli"> Use CLI</label>
       <button type="button" class="btn btn-secondary" onclick="handleThemeGithubInstall()">Install from GitHub</button>
-      <span class="theme-upload-note" id="theme-upload-note">Required files: meta.json, template.typ, wrapper.typ.jinja</span>
+      <span class="theme-upload-note" id="theme-upload-note">Required files: meta.json, template.typ, wrapper.typ.jinja. GitHub box also accepts full CLI command.</span>
+    </div>
+    <div class="theme-upload-row">
+      <input type="text" id="typst-init-spec" placeholder="@preview/package-name:version or init command" style="min-width:220px;padding:0.6rem 0.75rem;border:1.5px solid #dfe6e9;border-radius:6px;">
+      <button type="button" class="btn btn-secondary" onclick="handleTypstInit()">Initialize Typst Package</button>
+      <span class="theme-upload-note" id="typst-init-note">e.g., @preview/aero-dhbw:0.1.1</span>
     </div>
     <div class="actions-row">
       <button class="btn btn-primary" id="btn-next-template" disabled onclick="goToStep(1)">Next &rarr;</button>
@@ -191,9 +273,22 @@
 </div>
 
 <!-- Spinner -->
-<div class="spinner-overlay" id="spinner">
-  <div class="spinner"></div>
-  <div class="spinner-text">Converting your document&hellip;</div>
+<div class="spinner-overlay" id="spinner" aria-live="polite" aria-busy="true">
+  <div class="progress-panel" role="status">
+    <div class="progress-header">
+      <div>
+        <div class="progress-title" id="progress-title">Preparing Conversion</div>
+        <div class="progress-subtitle" id="progress-subtitle">Uploading the source file and starting the document build.</div>
+      </div>
+      <div class="progress-chip"><span class="spinner"></span><span id="progress-percent">0%</span></div>
+    </div>
+    <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+    <div class="progress-meta">
+      <span id="progress-status">Waiting to start</span>
+      <span id="progress-elapsed">0s</span>
+    </div>
+    <div class="progress-steps" id="progress-steps"></div>
+  </div>
 </div>
 
 <script>
@@ -207,6 +302,16 @@ let derivedFileTitle = '';
 let sessionId = null;
 let allTemplates = [];
 let selectedScenario = 'all';
+let progressTimer = null;
+let progressStartAt = 0;
+let progressValue = 0;
+
+const conversionPhases = [
+  { key: 'upload', label: 'Uploading markdown', status: 'sending', percent: 14, subtitle: 'Sending your markdown, selected theme, and document settings to the server.' },
+  { key: 'prepare', label: 'Preparing template', status: 'staging', percent: 34, subtitle: 'Loading assets, resolving parameters, and preparing the conversion workspace.' },
+  { key: 'compile', label: 'Compiling Typst', status: 'building', percent: 68, subtitle: 'Running the document build. This is usually the longest phase.' },
+  { key: 'package', label: 'Packaging outputs', status: 'finalizing', percent: 88, subtitle: 'Assembling PDF, DOCX, and ODT outputs for preview and download.' }
+];
 
 // ---- Init ----
 async function init() {
@@ -274,17 +379,18 @@ function selectTemplate(meta, cardEl) {
   document.getElementById('btn-next-template').disabled = false;
 }
 
-async function handleThemeZipSelect(event) {
+async function handleThemeFileSelect(event) {
   const file = event.target.files[0];
   if (!file) return;
 
-  if (!file.name.toLowerCase().endsWith('.zip')) {
-    showGlobalError('Theme package must be a .zip file');
+  const filename = file.name.toLowerCase();
+  if (!(filename.endsWith('.zip') || filename.endsWith('.tar.gz') || filename.endsWith('.tgz'))) {
+    showGlobalError('Theme package must be .zip or .tar.gz');
     return;
   }
 
   const formData = new FormData();
-  formData.append('theme_zip', file);
+  formData.append('theme_file', file);
   if (sessionId) {
     formData.append('session_id', sessionId);
   }
@@ -316,20 +422,28 @@ async function handleThemeZipSelect(event) {
 
 async function handleThemeGithubInstall() {
   const input = document.getElementById('theme-github-input');
-  const repo = (input.value || '').trim();
-  if (!repo) {
-    showGlobalError('Please enter a GitHub repository in format owner/repo');
+  const rawInput = (input.value || '').trim();
+  if (!rawInput) {
+    showGlobalError('Please enter owner/repo or paste a CLI command');
+    return;
+  }
+
+  const extractedRepo = extractRepoFromText(rawInput);
+  if (!extractedRepo) {
+    showGlobalError('Could not parse owner/repo from your input');
     return;
   }
 
   const formData = new FormData();
-  formData.append('github_repo', repo);
+  formData.append('github_repo', extractedRepo);
   if (sessionId) {
     formData.append('session_id', sessionId);
   }
+  const useCli = !!document.getElementById('theme-install-via-cli')?.checked;
+  formData.append('install_via_cli', useCli ? 'true' : 'false');
 
   const note = document.getElementById('theme-upload-note');
-  note.textContent = 'Installing theme from GitHub release...';
+  note.textContent = useCli ? 'Installing via CLI workflow...' : 'Installing theme from GitHub release...';
   showSpinner(true);
   try {
     const resp = await fetch('/api/theme/install', { method: 'POST', body: formData });
@@ -347,6 +461,83 @@ async function handleThemeGithubInstall() {
   } catch (e) {
     showGlobalError(String(e.message || e));
     note.textContent = 'Install failed. Ensure repo has a release zip and gh is authenticated.';
+  } finally {
+    showSpinner(false);
+  }
+}
+
+function extractRepoFromText(text) {
+  const value = String(text || '').trim();
+  if (!value) return null;
+
+  let m = value.match(/install-github\s+([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)/i);
+  if (m) return m[1];
+
+  m = value.match(/(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)(?:\.git)?/i);
+  if (m) return m[1];
+
+  m = value.match(/\b([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\b/);
+  if (m) return m[1];
+
+  return null;
+}
+
+function extractPackageSpec(text) {
+  const value = String(text || '').trim();
+  if (!value) return null;
+
+  let m = value.match(/init\s+([@A-Za-z0-9_.\/-:]+)/i);
+  if (m) return m[1];
+
+  m = value.match(/([@A-Za-z0-9_.\/-]+:[0-9.]+)/);
+  if (m) return m[1];
+
+  if (value.startsWith('@') && (value.includes('/') || value.includes(':'))) {
+    return value;
+  }
+
+  return null;
+}
+
+async function handleTypstInit() {
+  const input = document.getElementById('typst-init-spec');
+  const rawInput = (input.value || '').trim();
+  if (!rawInput) {
+    showGlobalError('Please enter a package spec like @preview/package-name:version');
+    return;
+  }
+
+  const packageSpec = extractPackageSpec(rawInput);
+  if (!packageSpec) {
+    showGlobalError('Could not parse package spec from your input');
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append('package_spec', packageSpec);
+  if (sessionId) {
+    formData.append('session_id', sessionId);
+  }
+
+  const note = document.getElementById('typst-init-note');
+  note.textContent = 'Initializing Typst package...';
+  showSpinner(true);
+  try {
+    const resp = await fetch('/api/typst/init', { method: 'POST', body: formData });
+    const data = await resp.json();
+    if (!resp.ok) {
+      throw new Error(data.detail || 'Init failed');
+    }
+    sessionId = data.session_id;
+    note.textContent = '✅ Initialized: ' + data.template.name;
+    selectedScenario = 'custom';
+    document.querySelectorAll('.scenario-chip').forEach(c => c.classList.remove('active'));
+    const customChip = document.querySelector('.scenario-chip[data-scenario="custom"]');
+    if (customChip) customChip.classList.add('active');
+    await refreshTemplates();
+  } catch (e) {
+    showGlobalError(String(e.message || e));
+    note.textContent = 'Init failed. Ensure typst is installed and the package spec is valid.';
   } finally {
     showSpinner(false);
   }
@@ -472,6 +663,11 @@ function renderParamsForm() {
 
 // ---- Convert ----
 async function doConvert() {
+  if (!mdFile || !selectedTemplateId || !selectedTemplateMeta) {
+    showGlobalError('Choose a template and markdown file before converting.');
+    return;
+  }
+
   const formData = new FormData();
   formData.append('md_file', mdFile);
   formData.append('template_id', selectedTemplateId);
@@ -497,21 +693,25 @@ async function doConvert() {
     formData.append('logo_file', logoEl.files[0]);
   }
 
-  showSpinner(true);
+  setConvertButtonState(true);
+  startConversionProgress();
   try {
     const resp = await fetch('/api/convert', { method: 'POST', body: formData });
     const data = await resp.json();
 
     if (!resp.ok) {
+      finishConversionProgress(false, data.detail || 'Conversion failed');
       showResult(null, data.detail || 'Conversion failed');
     } else {
       sessionId = data.session_id || sessionId;
+      finishConversionProgress(true);
       showResult(data, null);
     }
   } catch(e) {
+    finishConversionProgress(false, 'Network error');
     showResult(null, 'Network error: ' + e.message);
   } finally {
-    showSpinner(false);
+    setConvertButtonState(false);
     goToStep(3);
   }
 }
@@ -571,6 +771,8 @@ function reset() {
   document.getElementById('btn-next-upload').disabled = true;
   document.getElementById('md-input').value = '';
   document.getElementById('theme-upload-note').textContent = 'Required files: meta.json, template.typ, wrapper.typ.jinja';
+  stopConversionProgress();
+  setConvertButtonState(false);
   goToStep(0);
   refreshTemplates();
 }
@@ -579,6 +781,92 @@ function reset() {
 function showSpinner(on) {
   document.getElementById('spinner').classList.toggle('active', on);
 }
+
+function setConvertButtonState(isRunning) {
+  const button = document.getElementById('btn-convert');
+  if (!button) return;
+  button.disabled = isRunning;
+  button.innerHTML = isRunning ? '&#x23F3; Converting...' : '&#x1F680; Convert';
+}
+
+function renderProgressSteps(activeIndex, percent) {
+  const stepsEl = document.getElementById('progress-steps');
+  if (!stepsEl) return;
+
+  stepsEl.innerHTML = conversionPhases.map((phase, index) => {
+    const isDone = index < activeIndex || percent >= phase.percent;
+    const isActive = index === activeIndex && percent < 100;
+    const state = isDone ? 'done' : isActive ? phase.status : 'queued';
+    const icon = isDone ? '&#10003;' : isActive ? '&#9679;' : String(index + 1);
+    return '<div class="progress-step' + (isDone ? ' is-done' : '') + (isActive ? ' is-active' : '') + '">' +
+      '<span class="progress-step-icon">' + icon + '</span>' +
+      '<span class="progress-step-label">' + escapeHtml(phase.label) + '</span>' +
+      '<span class="progress-step-state">' + escapeHtml(state) + '</span>' +
+      '</div>';
+  }).join('');
+}
+
+function updateProgressDisplay(percent, statusText, subtitle) {
+  const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+  const activeIndex = clamped >= 100
+    ? conversionPhases.length - 1
+    : Math.min(conversionPhases.length - 1, conversionPhases.findIndex(phase => clamped <= phase.percent) === -1 ? conversionPhases.length - 1 : conversionPhases.findIndex(phase => clamped <= phase.percent));
+  document.getElementById('progress-fill').style.width = clamped + '%';
+  document.getElementById('progress-percent').textContent = clamped + '%';
+  document.getElementById('progress-status').textContent = statusText;
+  document.getElementById('progress-title').textContent = clamped >= 100 ? 'Conversion Complete' : conversionPhases[activeIndex].label;
+  document.getElementById('progress-subtitle').textContent = subtitle;
+  renderProgressSteps(activeIndex, clamped);
+}
+
+function startConversionProgress() {
+  stopConversionProgress();
+  progressStartAt = Date.now();
+  progressValue = 6;
+  showSpinner(true);
+  updateProgressDisplay(progressValue, 'Starting conversion', conversionPhases[0].subtitle);
+  document.getElementById('progress-elapsed').textContent = '0s';
+
+  progressTimer = window.setInterval(() => {
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - progressStartAt) / 1000));
+    document.getElementById('progress-elapsed').textContent = elapsedSeconds + 's';
+
+    if (progressValue < 18) {
+      progressValue += 2;
+    } else if (progressValue < 38) {
+      progressValue += 1.6;
+    } else if (progressValue < 72) {
+      progressValue += 1.1;
+    } else if (progressValue < 90) {
+      progressValue += 0.45;
+    } else if (progressValue < 94) {
+      progressValue += 0.12;
+    }
+
+    const phase = conversionPhases.find(item => progressValue <= item.percent) || conversionPhases[conversionPhases.length - 1];
+    updateProgressDisplay(progressValue, 'In progress', phase.subtitle);
+  }, 350);
+}
+
+function finishConversionProgress(isSuccess, failureMessage) {
+  const subtitle = isSuccess
+    ? 'The files are ready. Opening the preview and download actions now.'
+    : (failureMessage || 'The build stopped before completing.');
+  updateProgressDisplay(isSuccess ? 100 : Math.max(progressValue, 92), isSuccess ? 'Completed' : 'Stopped', subtitle);
+  document.getElementById('progress-elapsed').textContent = Math.max(1, Math.floor((Date.now() - progressStartAt) / 1000)) + 's';
+  window.setTimeout(() => {
+    stopConversionProgress();
+  }, isSuccess ? 450 : 900);
+}
+
+function stopConversionProgress() {
+  if (progressTimer) {
+    window.clearInterval(progressTimer);
+    progressTimer = null;
+  }
+  showSpinner(false);
+}
+
 function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
