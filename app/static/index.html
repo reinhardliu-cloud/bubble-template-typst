@@ -12,6 +12,29 @@
   .header p { opacity: 0.85; margin-top: 0.25rem; }
   .container { max-width: 960px; margin: 2rem auto; padding: 0 1.5rem; }
   .card { background: white; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); padding: 2rem; margin-bottom: 1.5rem; }
+  #step-template { position: relative; }
+  .settings-gear {
+    position: absolute;
+    top: -12px;
+    right: 14px;
+    width: 38px;
+    height: 38px;
+    border-radius: 999px;
+    border: 1.5px solid #dfe6e9;
+    background: #fff;
+    color: #636e72;
+    font-size: 1.1rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    transition: all 0.2s;
+    z-index: 2;
+  }
+  .settings-gear:hover { border-color: #E94845; color: #E94845; transform: translateY(-1px); }
+  .settings-gear.active { border-color: #E94845; color: #E94845; background: #fff5f5; }
   .step-label { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #E94845; margin-bottom: 0.5rem; }
   .section-title { font-size: 1.25rem; font-weight: 600; margin-bottom: 1.25rem; }
 
@@ -29,7 +52,6 @@
   .theme-upload-note { font-size: 0.8rem; color: #636e72; }
   .theme-cli-toggle { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; color: #636e72; }
   .theme-settings-wrap { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #dfe6e9; }
-  .theme-settings-toggle-row { margin-top: 0.8rem; display: flex; justify-content: flex-start; }
   .settings-tabs { display: flex; gap: 0.5rem; margin-bottom: 0.8rem; flex-wrap: wrap; }
   .settings-tab {
     border: 1px solid #dfe6e9;
@@ -250,6 +272,16 @@
 
   <!-- Step 0: Template selection -->
   <div class="card" id="step-template">
+    <button
+      type="button"
+      class="settings-gear"
+      id="btn-toggle-settings"
+      onclick="toggleThemeSettings()"
+      aria-label="Toggle Theme Settings"
+      title="Theme Settings"
+    >
+      &#9881;
+    </button>
     <div class="step-label">Step 1</div>
     <div class="section-title">Choose a Template</div>
     <div class="scenario-row" id="scenario-row">
@@ -275,9 +307,6 @@
       <input type="text" id="typst-init-spec" placeholder="@preview/package-name:version or init command" style="min-width:220px;padding:0.6rem 0.75rem;border:1.5px solid #dfe6e9;border-radius:6px;">
       <button type="button" class="btn btn-secondary" onclick="handleTypstInit()">Initialize Typst Package</button>
       <span class="theme-upload-note" id="typst-init-note">e.g., @preview/aero-dhbw:0.1.1</span>
-    </div>
-    <div class="theme-settings-toggle-row">
-      <button type="button" class="btn btn-secondary" id="btn-toggle-settings" onclick="toggleThemeSettings()">Show Theme Settings</button>
     </div>
     <div class="theme-settings-wrap hidden" id="theme-settings-wrap">
       <div class="settings-tabs">
@@ -481,7 +510,9 @@ function toggleThemeSettings(forceVisible) {
   const btn = document.getElementById('btn-toggle-settings');
   if (!panel || !btn) return;
   panel.classList.toggle('hidden', !settingsVisible);
-  btn.textContent = settingsVisible ? 'Hide Theme Settings' : 'Show Theme Settings';
+  btn.classList.toggle('active', settingsVisible);
+  btn.setAttribute('aria-label', settingsVisible ? 'Hide Theme Settings' : 'Show Theme Settings');
+  btn.setAttribute('title', settingsVisible ? 'Hide Theme Settings' : 'Show Theme Settings');
 }
 
 function switchSettingsPage(tabKey) {
