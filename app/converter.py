@@ -55,6 +55,43 @@ def normalize_template_id(template_id: str) -> str:
     return m.group(0)
 
 
+def _find_template_thumbnail(template_dir: Path) -> str | None:
+    """Return a relative path (within template_dir) to the best thumbnail image, or None."""
+    # 1. Check typst.toml [template] thumbnail = "..."
+    toml_path = template_dir / "typst.toml"
+    if toml_path.exists():
+        try:
+            content = toml_path.read_text(encoding="utf-8")
+            m = re.search(r'^\s*thumbnail\s*=\s*"([^"]+)"', content, re.MULTILINE)
+            if m:
+                rel = m.group(1)
+                if (template_dir / rel).exists():
+                    return rel
+        except OSError:
+            pass
+
+    # 2. thumbnails/1.png (typst package convention)
+    for candidate in ["thumbnails/1.png", "thumbnails/1.jpg"]:
+        if (template_dir / candidate).exists():
+            return candidate
+
+    # 3. First PNG in thumbnails/
+    thumb_dir = template_dir / "thumbnails"
+    if thumb_dir.is_dir():
+        for img in sorted(thumb_dir.iterdir()):
+            if img.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp"):
+                return "thumbnails/" + img.name
+
+    # 4. First non-logo PNG in assets/ (built-in bubble convention)
+    assets_dir = template_dir / "assets"
+    if assets_dir.is_dir():
+        for img in sorted(assets_dir.iterdir()):
+            if img.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp") and "logo" not in img.name.lower():
+                return "assets/" + img.name
+
+    return None
+
+
 def _load_templates_from_dir(templates_dir: Path, scope: str) -> list[dict]:
     if not templates_dir.exists():
         return []
@@ -79,6 +116,9 @@ def _load_templates_from_dir(templates_dir: Path, scope: str) -> list[dict]:
                 meta.setdefault("source", "built-in")
                 meta["persistent"] = True
                 meta["deletable"] = False
+            thumbnail_rel = _find_template_thumbnail(d)
+            if thumbnail_rel:
+                meta["_thumbnail_rel"] = thumbnail_rel
             templates.append(meta)
     return templates
 

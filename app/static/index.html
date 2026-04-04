@@ -97,12 +97,13 @@
 
   /* Template cards */
   .template-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; }
-  .template-card { border: 2px solid #e0e0e0; border-radius: 8px; padding: 1.25rem; cursor: pointer; transition: all 0.2s; }
+  .template-card { border: 2px solid #e0e0e0; border-radius: 8px; padding: 0; cursor: pointer; transition: all 0.2s; overflow: hidden; }
   .template-card:hover { border-color: #E94845; box-shadow: 0 2px 8px rgba(233,72,69,0.15); }
   .template-card.selected { border-color: #E94845; background: #fff5f5; }
   .template-card h3 { font-size: 1rem; margin-bottom: 0.4rem; }
   .template-card p { font-size: 0.85rem; color: #636e72; }
   .template-badge { display: inline-block; background: #E94845; color: white; font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 4px; margin-bottom: 0.5rem; }
+  .template-card-body { padding: 1rem 1.25rem 1.25rem; }
   .template-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.65rem; }
   .template-delete-btn {
     border: 1px solid #f1c0bf;
@@ -116,6 +117,36 @@
     cursor: pointer;
   }
   .template-delete-btn:hover { background: #fff5f5; border-color: #e89a98; }
+  .template-thumb-wrap {
+    width: 100%;
+    aspect-ratio: 4/3;
+    background: #f0ede8;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-bottom: 1px solid #e0e0e0;
+  }
+  .template-thumb-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top;
+    display: block;
+    transition: transform 0.25s ease;
+  }
+  .template-card:hover .template-thumb-wrap img { transform: scale(1.04); }
+  .template-thumb-placeholder {
+    width: 100%;
+    aspect-ratio: 4/3;
+    background: linear-gradient(135deg, #f0ede8 0%, #e7e4df 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+    color: #b2a99e;
+    border-bottom: 1px solid #e0e0e0;
+  }
 
   /* Upload zone */
   .upload-zone { border: 2px dashed #b2bec3; border-radius: 8px; padding: 2.5rem; text-align: center; cursor: pointer; transition: all 0.2s; }
@@ -304,9 +335,19 @@
       <span class="theme-upload-note" id="theme-upload-note">Required files: meta.json, template.typ, wrapper.typ.jinja. GitHub box also accepts full CLI command.</span>
     </div>
     <div class="theme-upload-row">
-      <input type="text" id="typst-init-spec" placeholder="@preview/package-name:version or init command" style="min-width:220px;padding:0.6rem 0.75rem;border:1.5px solid #dfe6e9;border-radius:6px;">
-      <button type="button" class="btn btn-secondary" onclick="handleTypstInit()">Initialize Typst Package</button>
-      <span class="theme-upload-note" id="typst-init-note">e.g., @preview/aero-dhbw:0.1.1</span>
+      <textarea id="typst-init-spec" rows="3" placeholder="@preview/package-name:version&#10;@preview/another-theme:0.1.0&#10;&#10;Paste one or more specs, one per line" style="min-width:280px;flex:1;padding:0.6rem 0.75rem;border:1.5px solid #dfe6e9;border-radius:6px;font-family:inherit;font-size:0.9rem;resize:vertical;line-height:1.5"></textarea>
+      <button type="button" class="btn btn-secondary" onclick="handleTypstInit()">Install Packages</button>
+      <span class="theme-upload-note" id="typst-init-note">e.g., @preview/aero-dhbw:0.1.1 — supports multi-line batch</span>
+    </div>
+    <div id="typst-batch-progress" class="hidden" style="margin-top:0.75rem;padding:0.75rem 1rem;border:1px solid #e0e0e0;border-radius:8px;background:#f8f7f4;font-size:0.875rem;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem;">
+        <span id="typst-batch-status" style="font-weight:600;color:#1C1917"></span>
+        <span id="typst-batch-counter" style="color:#78716C;font-size:0.8rem"></span>
+      </div>
+      <div style="width:100%;height:6px;background:#e7e5e4;border-radius:999px;overflow:hidden;margin-bottom:0.6rem">
+        <div id="typst-batch-bar" style="height:100%;width:0%;background:#E94845;border-radius:999px;transition:width 0.3s ease"></div>
+      </div>
+      <div id="typst-batch-results" style="display:flex;flex-direction:column;gap:0.3rem;max-height:160px;overflow-y:auto"></div>
     </div>
     <div class="theme-settings-wrap hidden" id="theme-settings-wrap">
       <div class="settings-tabs">
@@ -472,13 +513,19 @@ function renderTemplateGrid() {
     card.dataset.id = t.id;
     const badge = t.id.startsWith('custom-') ? 'custom' : (t.scenario || 'built-in');
     const canDelete = canDeleteTemplate(t);
+    const thumbHtml = t.thumbnail_url
+      ? '<div class="template-thumb-wrap"><img src="' + escapeHtml(t.thumbnail_url) + '" alt="' + escapeHtml(t.name) + ' preview" loading="lazy" onerror="this.parentElement.classList.add(\"thumb-error\");this.style.display=\"none\""></div>'
+      : '<div class="template-thumb-placeholder">&#x1F4C4;</div>';
     card.innerHTML =
-      '<div class="template-badge">' + escapeHtml(badge) + '</div>' +
-      '<div class="template-card-head">' +
-        '<h3>' + escapeHtml(t.name) + '</h3>' +
-        (canDelete ? '<button class="template-delete-btn" data-delete-id="' + escapeHtml(t.id) + '">Delete</button>' : '') +
-      '</div>' +
-      '<p>' + escapeHtml(t.description) + '</p>';
+      thumbHtml +
+      '<div class="template-card-body">' +
+        '<div class="template-badge">' + escapeHtml(badge) + '</div>' +
+        '<div class="template-card-head">' +
+          '<h3>' + escapeHtml(t.name) + '</h3>' +
+          (canDelete ? '<button class="template-delete-btn" data-delete-id="' + escapeHtml(t.id) + '">Delete</button>' : '') +
+        '</div>' +
+        '<p>' + escapeHtml(t.description) + '</p>' +
+      '</div>';
     card.onclick = () => selectTemplate(t, card);
     if (canDelete) {
       const deleteBtn = card.querySelector('.template-delete-btn');
@@ -829,43 +876,121 @@ async function handleTypstInit() {
   const input = document.getElementById('typst-init-spec');
   const rawInput = (input.value || '').trim();
   if (!rawInput) {
-    showGlobalError('Please enter a package spec like @preview/package-name:version');
+    showGlobalError('Please enter one or more package specs like @preview/package-name:version');
     return;
   }
 
-  const packageSpec = extractPackageSpec(rawInput);
-  if (!packageSpec) {
-    showGlobalError('Could not parse package spec from your input');
+  // Collect all non-empty, non-comment lines
+  const lines = rawInput.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+  if (!lines.length) {
+    showGlobalError('No valid package specs found');
     return;
-  }
-
-  const formData = new FormData();
-  formData.append('package_spec', packageSpec);
-  if (sessionId) {
-    formData.append('session_id', sessionId);
   }
 
   const note = document.getElementById('typst-init-note');
-  note.textContent = 'Initializing Typst package...';
-  showSpinner(true);
-  try {
-    const resp = await fetch('/api/typst/init', { method: 'POST', body: formData });
-    const data = await resp.json();
-    if (!resp.ok) {
-      throw new Error(data.detail || 'Init failed');
+  const batchPanel = document.getElementById('typst-batch-progress');
+  const batchStatus = document.getElementById('typst-batch-status');
+  const batchCounter = document.getElementById('typst-batch-counter');
+  const batchBar = document.getElementById('typst-batch-bar');
+  const batchResults = document.getElementById('typst-batch-results');
+
+  // Single package: use existing single endpoint for speed
+  if (lines.length === 1) {
+    const packageSpec = extractPackageSpec(lines[0]) || lines[0];
+    const formData = new FormData();
+    formData.append('package_spec', packageSpec);
+    if (sessionId) formData.append('session_id', sessionId);
+    note.textContent = 'Installing...';
+    batchPanel.classList.add('hidden');
+    showSpinner(true);
+    try {
+      const resp = await fetch('/api/typst/init', { method: 'POST', body: formData });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || 'Init failed');
+      sessionId = data.session_id;
+      note.textContent = '✅ Installed: ' + data.template.name;
+      selectedScenario = 'custom';
+      document.querySelectorAll('.scenario-chip').forEach(c => c.classList.remove('active'));
+      const customChip = document.querySelector('.scenario-chip[data-scenario="custom"]');
+      if (customChip) customChip.classList.add('active');
+      await refreshTemplates();
+    } catch (e) {
+      showGlobalError(String(e.message || e));
+      note.textContent = 'Init failed. Ensure typst is installed and the package spec is valid.';
+    } finally {
+      showSpinner(false);
     }
+    return;
+  }
+
+  // Batch: use init-batch endpoint with progress UI
+  batchPanel.classList.remove('hidden');
+  batchResults.innerHTML = '';
+  batchBar.style.width = '0%';
+  batchStatus.textContent = 'Starting batch install…';
+  batchCounter.textContent = '0 / ' + lines.length;
+  note.textContent = 'Installing ' + lines.length + ' packages…';
+
+  const formData = new FormData();
+  formData.append('package_specs', lines.join('\n'));
+  if (sessionId) formData.append('session_id', sessionId);
+
+  // Optimistic: animate progress during the request (we don't have per-item SSE yet)
+  let fakeStep = 0;
+  const total = lines.length;
+  const fakeTimer = setInterval(() => {
+    fakeStep = Math.min(fakeStep + 1, total - 1);
+    batchStatus.textContent = 'Installing: ' + lines[fakeStep];
+    batchCounter.textContent = fakeStep + ' / ' + total;
+    batchBar.style.width = Math.round((fakeStep / total) * 90) + '%';
+  }, 1800);
+
+  showSpinner(false); // don't block UI with full-screen spinner for batch
+  try {
+    const resp = await fetch('/api/typst/init-batch', { method: 'POST', body: formData });
+    const data = await resp.json();
+    clearInterval(fakeTimer);
+    if (!resp.ok) throw new Error(data.detail || 'Batch install failed');
+
     sessionId = data.session_id;
-    note.textContent = '✅ Initialized: ' + data.template.name;
-    selectedScenario = 'custom';
-    document.querySelectorAll('.scenario-chip').forEach(c => c.classList.remove('active'));
-    const customChip = document.querySelector('.scenario-chip[data-scenario="custom"]');
-    if (customChip) customChip.classList.add('active');
-    await refreshTemplates();
+    const results = data.results || [];
+    const succeeded = results.filter(r => r.success).length;
+    const failed = results.length - succeeded;
+
+    batchBar.style.width = '100%';
+    batchBar.style.background = failed > 0 ? '#D97706' : '#16A34A';
+    batchStatus.textContent = failed === 0
+      ? '✅ All ' + succeeded + ' packages installed'
+      : '⚠️ ' + succeeded + ' installed, ' + failed + ' failed';
+    batchCounter.textContent = succeeded + ' / ' + total;
+
+    batchResults.innerHTML = '';
+    results.forEach(r => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:baseline;gap:0.5rem;font-size:0.82rem;padding:0.2rem 0;border-bottom:1px solid #e7e5e4';
+      const icon = r.success ? '✅' : '❌';
+      const label = r.success ? (r.template && r.template.name ? r.template.name : r.spec) : r.spec;
+      const detail = r.success ? '' : (' — ' + escapeHtml(r.error || 'failed'));
+      row.innerHTML = icon + ' <span style="color:#1C1917;font-weight:600">' + escapeHtml(label) + '</span><span style="color:#78716C">' + escapeHtml(detail) + '</span>';
+      batchResults.appendChild(row);
+    });
+
+    if (succeeded > 0) {
+      note.textContent = '✅ Installed ' + succeeded + ' package' + (succeeded > 1 ? 's' : '');
+      selectedScenario = 'custom';
+      document.querySelectorAll('.scenario-chip').forEach(c => c.classList.remove('active'));
+      const customChip = document.querySelector('.scenario-chip[data-scenario="custom"]');
+      if (customChip) customChip.classList.add('active');
+      await refreshTemplates();
+    } else {
+      note.textContent = '❌ All installs failed';
+    }
   } catch (e) {
+    clearInterval(fakeTimer);
     showGlobalError(String(e.message || e));
-    note.textContent = 'Init failed. Ensure typst is installed and the package spec is valid.';
-  } finally {
-    showSpinner(false);
+    note.textContent = 'Batch install failed.';
+    batchBar.style.background = '#E94845';
+    batchStatus.textContent = 'Error: ' + (e.message || e);
   }
 }
 

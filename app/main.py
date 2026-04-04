@@ -349,7 +349,44 @@ def api_templates(session_id: Optional[str] = None):
             safe_session = str(uuid.UUID(session_id))
         except ValueError:
             raise HTTPException(status_code=400, detail="session_id must be a valid UUID")
-    return list_templates(session_id=safe_session)
+    templates = list_templates(session_id=safe_session)
+    # Inject thumbnail_url for templates that have a thumbnail
+    for t in templates:
+        rel = t.pop("_thumbnail_rel", None)
+        if rel:
+            sid_param = f"?session_id={safe_session}" if safe_session else ""
+            t["thumbnail_url"] = f"/api/template/{t['id']}/thumbnail{sid_param}"
+    return templates
+
+
+@app.get("/api/template/{template_id}/thumbnail")
+def api_template_thumbnail(template_id: str, session_id: Optional[str] = None):
+    safe_session = None
+    if session_id:
+        try:
+            safe_session = str(uuid.UUID(session_id))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="session_id must be a valid UUID")
+
+    from converter import resolve_template_dir, normalize_template_id, _find_template_thumbnail
+    try:
+        safe_id = normalize_template_id(template_id)
+        template_dir = resolve_template_dir(safe_id, session_id=safe_session)
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail="Template not found") from exc
+
+    rel = _find_template_thumbnail(template_dir)
+    if not rel:
+        raise HTTPException(status_code=404, detail="No thumbnail available")
+
+    img_path = template_dir / rel
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail="Thumbnail file not found")
+
+    suffix = img_path.suffix.lower()
+    media_type_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+    media_type = media_type_map.get(suffix, "image/png")
+    return FileResponse(str(img_path), media_type=media_type)
 
 
 @app.post("/api/theme/upload")
@@ -415,6 +452,37 @@ async def api_typst_init(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return JSONResponse({"session_id": safe_session_id, "template": meta})
+
+
+@app.post("/api/typst/init-batch")
+async def api_typst_init_batch(
+    package_specs: str = Form(...),
+    session_id: Optional[str] = Form(default=None),
+):
+    """Install multiple Typst packages from a newline-separated list of specs."""
+    safe_session_id = ensure_session(session_id)
+
+    raw_lines = package_specs.splitlines()
+    specs = []
+    for line in raw_lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        specs.append(line)
+
+    if not specs:
+        raise HTTPException(status_code=400, detail="No valid package specs provided")
+
+    results = []
+    themes_dir = get_session_themes_dir(safe_session_id)
+    for spec in specs:
+        try:
+            meta = _init_typst_package_as_theme(spec, themes_dir)
+            results.append({"spec": spec, "success": True, "template": meta})
+        except Exception as exc:
+            results.append({"spec": spec, "success": False, "error": str(exc)})
+
+    return JSONResponse({"session_id": safe_session_id, "results": results})
 
 
 @app.post("/api/theme/delete")
