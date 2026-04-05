@@ -1,4 +1,5 @@
 import os
+import logging
 import subprocess
 import shutil
 import uuid
@@ -8,7 +9,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 import yaml
 from jinja2 import Environment, FileSystemLoader
-from typst_theme_import import serialize_typst_value
+from typst_theme_import import serialize_typst_value, ensure_typst_init_adapter
+
+logger = logging.getLogger(__name__)
 
 SESSIONS_DIR = Path(os.environ.get("SESSIONS_DIR", "/tmp/sessions"))
 APP_DIR = Path(__file__).resolve().parent
@@ -192,6 +195,25 @@ def _load_templates_from_dir(templates_dir: Path, scope: str) -> list[dict]:
                 meta["persistent"] = True
                 meta["deletable"] = False
             meta = normalize_template_meta(meta, d)
+
+            # Lazy adapter backfill: typst-init packages installed before
+            # ensure_typst_init_adapter was introduced have no params/wrapper.
+            # Regenerate them on the fly so old installs auto-upgrade.
+            if (
+                meta.get("params_source") == "missing"
+                and meta.get("source") == "typst-init"
+                and (d / "main.typ").exists()
+            ):
+                try:
+                    meta = ensure_typst_init_adapter(
+                        d,
+                        package_spec=meta.get("source_ref"),
+                        meta=meta,
+                    )
+                    meta = normalize_template_meta(meta, d)
+                except Exception as _exc:  # noqa: BLE001
+                    logger.warning("Lazy adapter backfill failed for %s: %s", d.name, _exc)
+
             thumbnail_rel = _find_template_thumbnail(d)
             if thumbnail_rel:
                 meta["_thumbnail_rel"] = thumbnail_rel

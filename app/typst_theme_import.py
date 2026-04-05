@@ -148,7 +148,9 @@ def _infer_param_from_argument(key: str, raw_value: str, optional: bool) -> dict
 
 	if value.startswith('"') and value.endswith('"') and len(value) >= 2:
 		kind = "string"
-		default = value[1:-1].encode("utf-8").decode("unicode_escape")
+		# Strip surrounding quotes; handle only basic backslash escapes
+		inner = value[1:-1]
+		default = inner.replace('\\"', '"').replace("\\\\", "\\").replace("\\n", "\n").replace("\\t", "\t")
 	elif value.startswith("[") and value.endswith("]"):
 		kind = "content"
 		default = value[1:-1].strip().replace("\\\n", "\n")
