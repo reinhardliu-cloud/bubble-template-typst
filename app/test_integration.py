@@ -104,6 +104,31 @@ def test_web_ui_upload():
         test_zip.unlink(missing_ok=True)
 
 
+def test_incompatible_theme_is_flagged_for_web_conversion():
+    """Test: raw Typst package metadata is marked incompatible instead of failing silently."""
+    from converter import list_templates, get_session_themes_dir
+
+    session_id = str(uuid.uuid4())
+    session_dir = get_session_themes_dir(session_id)
+    theme_dir = session_dir / 'raw-typst-package'
+    theme_dir.mkdir(parents=True, exist_ok=True)
+    (theme_dir / 'meta.json').write_text(json.dumps({
+        'id': 'raw-typst-package',
+        'name': 'Raw Typst Package',
+        'source': 'typst-init',
+        'description': 'Installed via typst init without converter wrapper'
+    }), encoding='utf-8')
+
+    templates = list_templates(session_id=session_id)
+    raw_theme = next((tpl for tpl in templates if tpl['id'] == 'raw-typst-package'), None)
+
+    assert raw_theme is not None, 'Raw package theme not discoverable'
+    assert raw_theme['converter_compatible'] is False, 'Incompatible raw package was not flagged'
+    assert 'wrapper.typ.jinja' in raw_theme['converter_message'], 'Missing wrapper explanation not exposed'
+    assert raw_theme['params_message'], 'Step 3 empty-state explanation missing'
+    print('✓ test_incompatible_theme_is_flagged_for_web_conversion PASSED')
+
+
 def test_cross_integration():
     """Test: CLI and Web UI themes both discoverable in same session."""
     from converter import list_templates, CUSTOM_TEMPLATES_DIR, get_session_themes_dir
@@ -197,6 +222,7 @@ def main():
         ("CLI Installation", test_cli_installation),
         ("CLI Themes in Web UI", test_cli_themes_in_web_ui),
         ("Web UI Upload", test_web_ui_upload),
+        ("Incompatible Theme Flagging", test_incompatible_theme_is_flagged_for_web_conversion),
         ("Cross Integration", test_cross_integration),
         ("Template Resolution", test_template_resolution),
         ("CLI Help", test_cli_help),

@@ -274,6 +274,8 @@
 
   /* Error */
   .error-box { background: #fff5f5; border: 1.5px solid #e74c3c; border-radius: 8px; padding: 1rem 1.25rem; color: #c0392b; font-size: 0.9rem; white-space: pre-wrap; }
+  .info-box { background: #f8f7f4; border: 1.5px solid #e7e5e4; border-radius: 8px; padding: 1rem 1.25rem; color: #44403c; font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; }
+  .warning-box { background: #fff7ed; border: 1.5px solid #fdba74; border-radius: 8px; padding: 1rem 1.25rem; color: #9a3412; font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; }
 
   /* Steps navigation */
   .steps-nav { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
@@ -394,6 +396,7 @@
     <div class="step-label">Step 3</div>
     <div class="section-title">Document Settings</div>
     <p style="font-size:0.85rem;color:#636e72;margin-bottom:1.25rem">Fields are pre-filled from your Markdown frontmatter. Override as needed.</p>
+    <div id="params-note" class="hidden" style="margin-bottom:1rem"></div>
     <div class="form-grid" id="params-form"></div>
     <div class="actions-row">
       <button class="btn btn-secondary" onclick="goToStep(1)">&larr; Back</button>
@@ -908,7 +911,11 @@ async function handleTypstInit() {
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.detail || 'Init failed');
       sessionId = data.session_id;
-      note.textContent = '✅ Installed: ' + data.template.name;
+      if (data.template && data.template.converter_compatible === false) {
+        note.textContent = '⚠ Installed package, but it needs a converter adapter before web conversion.';
+      } else {
+        note.textContent = '✅ Installed: ' + data.template.name;
+      }
       selectedScenario = 'custom';
       document.querySelectorAll('.scenario-chip').forEach(c => c.classList.remove('active'));
       const customChip = document.querySelector('.scenario-chip[data-scenario="custom"]');
@@ -970,7 +977,9 @@ async function handleTypstInit() {
       row.style.cssText = 'display:flex;align-items:baseline;gap:0.5rem;font-size:0.82rem;padding:0.2rem 0;border-bottom:1px solid #e7e5e4';
       const icon = r.success ? '✅' : '❌';
       const label = r.success ? (r.template && r.template.name ? r.template.name : r.spec) : r.spec;
-      const detail = r.success ? '' : (' — ' + escapeHtml(r.error || 'failed'));
+      const detail = r.success
+        ? ((r.template && r.template.converter_compatible === false) ? ' — needs converter adapter for web conversion' : '')
+        : (' — ' + escapeHtml(r.error || 'failed'));
       row.innerHTML = icon + ' <span style="color:#1C1917;font-weight:600">' + escapeHtml(label) + '</span><span style="color:#78716C">' + escapeHtml(detail) + '</span>';
       batchResults.appendChild(row);
     });
@@ -1046,11 +1055,28 @@ function parseFrontmatter(content) {
 // ---- Params form ----
 function renderParamsForm() {
   const container = document.getElementById('params-form');
+  const note = document.getElementById('params-note');
   container.innerHTML = '';
+  note.innerHTML = '';
+  note.classList.add('hidden');
 
-  if (!selectedTemplateMeta || !selectedTemplateMeta.params) return;
+  if (!selectedTemplateMeta) return;
 
-  selectedTemplateMeta.params.forEach(p => {
+  if (!selectedTemplateMeta.converter_compatible) {
+    note.innerHTML = '<div class="warning-box"><strong>Theme format mismatch</strong>\n' + escapeHtml(selectedTemplateMeta.converter_message || 'This theme cannot be used by the web converter.') + '</div>';
+    note.classList.remove('hidden');
+  } else if (selectedTemplateMeta.params_message) {
+    note.innerHTML = '<div class="info-box">' + escapeHtml(selectedTemplateMeta.params_message) + '</div>';
+    note.classList.remove('hidden');
+  }
+
+  const params = Array.isArray(selectedTemplateMeta.params) ? selectedTemplateMeta.params : [];
+  if (!params.length) {
+    container.innerHTML = '<div class="info-box" style="grid-column:1 / -1">No editable fields are available for this theme.</div>';
+    return;
+  }
+
+  params.forEach(p => {
     const group = document.createElement('div');
     group.className = 'form-group' + (p.key === 'logo' ? ' full-width' : '');
 
@@ -1119,6 +1145,11 @@ async function doConvert() {
     return;
   }
 
+  if (!selectedTemplateMeta.converter_compatible) {
+    showGlobalError(selectedTemplateMeta.converter_message || 'This theme is not compatible with the web converter.');
+    return;
+  }
+
   const formData = new FormData();
   formData.append('md_file', mdFile);
   formData.append('template_id', selectedTemplateId);
@@ -1128,7 +1159,7 @@ async function doConvert() {
 
   // Collect params
   const params = {};
-  selectedTemplateMeta.params.forEach(p => {
+  (selectedTemplateMeta.params || []).forEach(p => {
     if (p.type === 'file') return;
     const el = document.getElementById('param-' + p.key);
     if (el) {

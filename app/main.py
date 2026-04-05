@@ -26,6 +26,7 @@ from converter import (
     TEMPLATES_DIR,
 )
 from theme_package import install_theme_package, install_theme_package_from_tar
+from typst_theme_import import ensure_typst_init_adapter
 
 SESSIONS_DIR = Path(os.environ.get("SESSIONS_DIR", "/tmp/sessions"))
 APP_DIR = Path(__file__).resolve().parent
@@ -317,6 +318,14 @@ def _init_typst_package_as_theme(package_spec: str, session_themes_dir: Path) ->
     meta.setdefault("source", "typst-init")
     meta.setdefault("source_ref", package_spec)
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # Attempt to auto-generate wrapper.typ.jinja + template.typ from main.typ so
+    # the package becomes immediately usable in the web converter.
+    try:
+        meta = ensure_typst_init_adapter(installed_dir, package_spec=package_spec, meta=meta)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not auto-generate converter adapter for %s: %s", package_spec, exc)
+
     return meta
 
 

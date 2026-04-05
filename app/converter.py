@@ -15,6 +15,17 @@ TEMPLATES_DIR = Path(os.environ.get("TEMPLATES_DIR", APP_DIR / "templates"))
 CUSTOM_TEMPLATES_DIR = Path(os.environ.get("CUSTOM_TEMPLATES_DIR", APP_DIR / "templates_custom"))
 CONVERTER_VERSION = os.environ.get("CONVERTER_VERSION", "dev")
 
+DEFAULT_TEMPLATE_PARAMS: list[dict[str, object]] = [
+    {"key": "title", "type": "text", "label": "Title", "required": True, "default": ""},
+    {"key": "subtitle", "type": "text", "label": "Subtitle", "required": False, "default": ""},
+    {"key": "author", "type": "text", "label": "Author", "required": False, "default": ""},
+    {"key": "affiliation", "type": "text", "label": "Affiliation", "required": False, "default": ""},
+    {"key": "year", "type": "text", "label": "Year", "required": False, "default": ""},
+    {"key": "class", "type": "text", "label": "Class", "required": False, "default": ""},
+    {"key": "main-color", "type": "color", "label": "Accent Color", "required": False, "default": "E94845"},
+    {"key": "logo", "type": "file", "label": "Logo Image", "required": False},
+]
+
 
 def get_session_dir(session_id: str) -> Path:
     return SESSIONS_DIR / session_id
@@ -45,7 +56,8 @@ def load_template_meta(template_dir: Path) -> dict:
     if not meta_path.exists():
         raise FileNotFoundError(f"Template metadata not found: {meta_path}")
     with open(meta_path) as f:
-        return json.load(f)
+        raw_meta = json.load(f)
+    return normalize_template_meta(raw_meta, template_dir)
 
 
 def normalize_template_id(template_id: str) -> str:
@@ -53,6 +65,68 @@ def normalize_template_id(template_id: str) -> str:
     if not m:
         raise ValueError(f"Invalid template ID: {template_id!r}")
     return m.group(0)
+
+
+def _clone_default_params() -> list[dict[str, object]]:
+    return [dict(param) for param in DEFAULT_TEMPLATE_PARAMS]
+
+
+def normalize_template_meta(meta: dict, template_dir: Path | None = None) -> dict:
+    normalized = dict(meta) if isinstance(meta, dict) else {}
+
+    params = normalized.get("params")
+    if isinstance(params, list):
+        normalized["params"] = params
+        normalized["params_source"] = "declared"
+    else:
+        normalized["params"] = []
+        normalized["params_source"] = "missing"
+
+    wrapper_template = str(normalized.get("wrapper_template") or "wrapper.typ.jinja")
+    normalized["wrapper_template"] = wrapper_template
+
+    compatibility_message = ""
+    compatible = True
+    if template_dir is not None:
+        missing_files = []
+        if not (template_dir / "template.typ").exists():
+            missing_files.append("template.typ")
+        if not (template_dir / wrapper_template).exists():
+            missing_files.append(wrapper_template)
+        if missing_files:
+            compatible = False
+            missing_text = ", ".join(missing_files)
+            if str(normalized.get("source", "")) == "typst-init":
+                compatibility_message = (
+                    "This package was installed with typst init, but it is a raw Typst template package rather "
+                    "than a converter theme. The web converter requires template.typ and wrapper.typ.jinja so it "
+                    f"can map Markdown into the theme. Missing: {missing_text}."
+                )
+            else:
+                compatibility_message = (
+                    "This theme is missing required converter files and cannot be used by the web converter. "
+                    f"Missing: {missing_text}."
+                )
+
+    normalized["converter_compatible"] = compatible
+    if compatibility_message:
+        normalized["converter_message"] = compatibility_message
+
+    if not normalized["params"]:
+        if compatible:
+            normalized["params_message"] = (
+                "This theme does not declare any editable document fields in meta.json, so Step 3 has no "
+                "frontmatter overrides to show."
+            )
+        else:
+            normalized["params_message"] = compatibility_message or (
+                "This theme does not expose editable document fields for the web converter."
+            )
+
+    if compatible and normalized["params_source"] == "missing":
+        normalized["fallback_params"] = _clone_default_params()
+
+    return normalized
 
 
 def _find_template_thumbnail(template_dir: Path) -> str | None:
@@ -116,6 +190,7 @@ def _load_templates_from_dir(templates_dir: Path, scope: str) -> list[dict]:
                 meta.setdefault("source", "built-in")
                 meta["persistent"] = True
                 meta["deletable"] = False
+            meta = normalize_template_meta(meta, d)
             thumbnail_rel = _find_template_thumbnail(d)
             if thumbnail_rel:
                 meta["_thumbnail_rel"] = thumbnail_rel
@@ -200,6 +275,11 @@ def convert(
     template_dir = resolve_template_dir(safe_template_id, session_id=session_id)
     meta = load_template_meta(template_dir)
 
+    if not meta.get("converter_compatible", True):
+        raise ValueError(
+            str(meta.get("converter_message") or "This theme is not compatible with the web converter.")
+        )
+
     resolved_template_version = str(meta.get("version", "local"))
     if template_version and str(template_version) != resolved_template_version:
         raise ValueError(
@@ -215,7 +295,8 @@ def convert(
     frontmatter = parse_frontmatter(md_content)
     params = {}
     # Start with defaults from meta
-    for p in meta["params"]:
+    effective_params = meta["params"] or meta.get("fallback_params") or []
+    for p in effective_params:
         if "default" in p:
             params[p["key"]] = p["default"]
     # Apply frontmatter values
