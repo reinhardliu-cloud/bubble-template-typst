@@ -583,7 +583,7 @@
 <body>
 
 <div class="header">
-  <h1>&#x1F4C4; Typst Document Converter</h1>
+  <h1>&#x1F4C4; Typst Document Converter <span id="app-version" style="font-size:0.55em;font-weight:400;opacity:0.6;vertical-align:middle;"></span></h1>
   <p>Convert Markdown to beautifully styled PDF, DOCX, and ODT documents</p>
 </div>
 
@@ -763,6 +763,10 @@ let selectedScenario = 'all';
 let progressTimer = null;
 let progressStartAt = 0;
 let progressValue = 0;
+let progressLocked = false;
+let progressRunId = 0;
+let progressLastRendered = 0;
+let progressFloor = 0;
 
 const conversionPhases = [
   { key: 'upload', label: 'Uploading markdown', status: 'sending', percent: 14, subtitle: 'Sending your markdown, selected theme, and document settings to the server.' },
@@ -775,6 +779,10 @@ const conversionPhases = [
 async function init() {
   bindScenarioFilters();
   await refreshTemplates();
+  fetch('/api/version').then(r => r.json()).then(data => {
+    const el = document.getElementById('app-version');
+    if (el && data.version) el.textContent = 'v' + data.version;
+  }).catch(() => {});
 }
 
 async function refreshTemplates() {
@@ -1631,19 +1639,33 @@ function renderProgressSteps(activeIndex, percent) {
 
 function updateProgressDisplay(percent, statusText, subtitle) {
   const clamped = Math.max(0, Math.min(100, Math.round(percent)));
-  const activeIndex = clamped >= 100
+  const guarded = Math.max(clamped, progressFloor);
+  const spinnerActive = document.getElementById('spinner').classList.contains('active');
+
+  // While spinner is visible, never allow visual progress to go backwards.
+  if (spinnerActive && guarded < progressLastRendered) {
+    return;
+  }
+
+  progressLastRendered = guarded;
+  const activeIndex = guarded >= 100
     ? conversionPhases.length - 1
-    : Math.min(conversionPhases.length - 1, conversionPhases.findIndex(phase => clamped <= phase.percent) === -1 ? conversionPhases.length - 1 : conversionPhases.findIndex(phase => clamped <= phase.percent));
-  document.getElementById('progress-fill').style.width = clamped + '%';
-  document.getElementById('progress-percent').textContent = clamped + '%';
+    : Math.min(conversionPhases.length - 1, conversionPhases.findIndex(phase => guarded <= phase.percent) === -1 ? conversionPhases.length - 1 : conversionPhases.findIndex(phase => guarded <= phase.percent));
+  document.getElementById('progress-fill').style.width = guarded + '%';
+  document.getElementById('progress-percent').textContent = guarded + '%';
   document.getElementById('progress-status').textContent = statusText;
-  document.getElementById('progress-title').textContent = clamped >= 100 ? 'Conversion Complete' : conversionPhases[activeIndex].label;
+  document.getElementById('progress-title').textContent = guarded >= 100 ? 'Conversion Complete' : conversionPhases[activeIndex].label;
   document.getElementById('progress-subtitle').textContent = subtitle;
-  renderProgressSteps(activeIndex, clamped);
+  renderProgressSteps(activeIndex, guarded);
 }
 
 function startConversionProgress() {
   stopConversionProgress();
+  progressRunId += 1;
+  const runId = progressRunId;
+  progressLocked = false;
+  progressLastRendered = 0;
+  progressFloor = 0;
   progressStartAt = Date.now();
   progressValue = 6;
   showSpinner(true);
@@ -1651,6 +1673,8 @@ function startConversionProgress() {
   document.getElementById('progress-elapsed').textContent = '0s';
 
   progressTimer = window.setInterval(() => {
+    if (runId !== progressRunId) return;
+    if (progressLocked) return;
     const elapsedSeconds = Math.max(0, Math.floor((Date.now() - progressStartAt) / 1000));
     document.getElementById('progress-elapsed').textContent = elapsedSeconds + 's';
 
@@ -1672,10 +1696,20 @@ function startConversionProgress() {
 }
 
 function finishConversionProgress(isSuccess, failureMessage) {
+  // Lock and stop the ticker first to avoid a late timer tick overriding 100%.
+  progressLocked = true;
+  progressRunId += 1;
+  if (progressTimer) {
+    window.clearInterval(progressTimer);
+    progressTimer = null;
+  }
+
+  progressValue = isSuccess ? 100 : Math.max(progressValue, 92);
+  progressFloor = progressValue;
   const subtitle = isSuccess
     ? 'The files are ready. Opening the preview and download actions now.'
     : (failureMessage || 'The build stopped before completing.');
-  updateProgressDisplay(isSuccess ? 100 : Math.max(progressValue, 92), isSuccess ? 'Completed' : 'Stopped', subtitle);
+  updateProgressDisplay(progressValue, isSuccess ? 'Completed' : 'Stopped', subtitle);
   document.getElementById('progress-elapsed').textContent = Math.max(1, Math.floor((Date.now() - progressStartAt) / 1000)) + 's';
   window.setTimeout(() => {
     stopConversionProgress();
@@ -1687,6 +1721,9 @@ function stopConversionProgress() {
     window.clearInterval(progressTimer);
     progressTimer = null;
   }
+  progressLocked = false;
+  progressLastRendered = 0;
+  progressFloor = 0;
   showSpinner(false);
 }
 

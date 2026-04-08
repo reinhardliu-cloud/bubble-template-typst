@@ -33,6 +33,8 @@ APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = Path(os.environ.get("STATIC_DIR", APP_DIR / "static"))
 SESSION_TTL_MINUTES = 30
 
+from converter import CONVERTER_VERSION as _APP_VERSION
+
 # In-memory record of session creation times
 session_registry: dict[str, datetime] = {}
 logger = logging.getLogger(__name__)
@@ -348,6 +350,11 @@ async def cleanup_loop():
             if session_dir.exists():
                 shutil.rmtree(session_dir, ignore_errors=True)
             session_registry.pop(sid, None)
+
+
+@app.get("/api/version")
+def api_version():
+    return {"version": _APP_VERSION}
 
 
 @app.get("/api/templates")

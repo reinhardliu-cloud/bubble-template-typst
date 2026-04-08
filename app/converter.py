@@ -19,7 +19,20 @@ SESSIONS_DIR = Path(os.environ.get("SESSIONS_DIR", "/tmp/sessions"))
 APP_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = Path(os.environ.get("TEMPLATES_DIR", APP_DIR / "templates"))
 CUSTOM_TEMPLATES_DIR = Path(os.environ.get("CUSTOM_TEMPLATES_DIR", APP_DIR / "templates_custom"))
-CONVERTER_VERSION = os.environ.get("CONVERTER_VERSION", "dev")
+
+def _read_app_version() -> str:
+    """Read version from VERSION file at project root."""
+    for candidate in [
+        APP_DIR.parent / "VERSION",
+        APP_DIR / "VERSION",
+    ]:
+        try:
+            return candidate.read_text(encoding="utf-8").strip()
+        except OSError:
+            pass
+    return "dev"
+
+CONVERTER_VERSION = os.environ.get("CONVERTER_VERSION") or _read_app_version()
 
 DEFAULT_TEMPLATE_PARAMS: list[dict[str, object]] = [
     {"key": "title", "type": "text", "label": "Title", "required": True, "default": ""},
