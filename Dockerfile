@@ -22,6 +22,7 @@ RUN python3.11 -m pip install --no-cache-dir -r /tmp/requirements.txt
 
 # Copy app code
 COPY app/ /app/
+COPY VERSION /app/VERSION
 
 # Copy bubble template resources (template.typ, fonts, assets from repo root)
 COPY template.typ /app/templates/bubble/template.typ
